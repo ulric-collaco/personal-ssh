@@ -136,7 +136,7 @@ func newModel() model {
 			{name: "Minimal White", primary: "#F5F5F5", accent: "#9EC5FF", highlight: "#FFE9A8", particle: "#BEE7D3", scanline: "#7A7A7A", enableScanline: false},
 		},
 		portrait:       portrait,
-		revealLines:    0,
+		revealLines:    len(portrait),
 		scaledPortrait: portrait,
 		introLines: []string{
 			"Hello, I'm Ulric Collaco",
@@ -277,9 +277,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, particleTick()
 
 	case revealTickMsg:
-		if m.revealLines < len(m.scaledPortrait) {
-			m.revealLines++
-		}
+		m.revealLines = len(m.scaledPortrait)
 		return m, revealTick()
 
 	case typeTickMsg:
@@ -403,9 +401,51 @@ func (m *model) refreshScaledPortrait() {
 	if m.revealLines > len(m.scaledPortrait) {
 		m.revealLines = len(m.scaledPortrait)
 	}
-	if m.revealLines == 0 {
-		m.revealLines = min(1, len(m.scaledPortrait))
+	m.revealLines = len(m.scaledPortrait)
+}
+
+func (m model) portraitBounds() (int, int, int, int, bool) {
+	portraitVisible := m.scaledPortrait[:min(m.revealLines, len(m.scaledPortrait))]
+	if len(portraitVisible) == 0 || m.width <= 0 || m.height <= 0 {
+		return 0, 0, 0, 0, false
 	}
+
+	topBreath := max(2, m.height/10)
+	portraitTop := topBreath
+	if portraitTop+len(portraitVisible) > m.height-6 {
+		portraitTop = max(2, m.height-len(portraitVisible)-6)
+	}
+
+	maxW := 0
+	for _, line := range portraitVisible {
+		w := lipgloss.Width(line)
+		if w > maxW {
+			maxW = w
+		}
+	}
+	if maxW <= 0 {
+		return 0, 0, 0, 0, false
+	}
+
+	left := (m.width - maxW) / 2
+	right := left + maxW - 1
+	top := portraitTop
+	bottom := portraitTop + len(portraitVisible) - 1
+
+	if left < 0 {
+		left = 0
+	}
+	if right >= m.width {
+		right = m.width - 1
+	}
+	if top < 0 {
+		top = 0
+	}
+	if bottom >= m.height {
+		bottom = m.height - 1
+	}
+
+	return left, right, top, bottom, true
 }
 
 func cropPortraitToFit(lines []string, maxWidth, maxHeight int) []string {
@@ -835,15 +875,10 @@ func (m model) renderOverlay(t theme) string {
 	accentStyle := lipgloss.NewStyle().Foreground(t.accent)
 	highlightStyle := lipgloss.NewStyle().Foreground(t.highlight).Bold(true)
 
-	protectedW := int(float64(m.width) * 0.55)
-	protectedH := int(float64(m.height) * 0.58)
-	left := (m.width - protectedW) / 2
-	top := (m.height - protectedH) / 2
-	right := left + protectedW
-	bottom := top + protectedH
+	portraitLeft, portraitRight, portraitTop, portraitBottom, hasPortrait := m.portraitBounds()
 
 	for _, p := range m.particles {
-		if p.x >= left && p.x <= right && p.y >= top && p.y <= bottom && rand.Intn(4) != 0 {
+		if hasPortrait && p.x >= portraitLeft && p.x <= portraitRight && p.y >= portraitTop && p.y <= portraitBottom {
 			continue
 		}
 		if p.x < 0 || p.x >= m.width || p.y < 0 || p.y >= m.height {
@@ -877,6 +912,12 @@ func (m model) renderOverlay(t theme) string {
 
 	if t.enableScanline && m.scanlineY >= 0 && m.scanlineY < m.height {
 		for x := 1; x <= m.width; x += 2 {
+			if hasPortrait {
+				px := x - 1
+				if px >= portraitLeft && px <= portraitRight && m.scanlineY >= portraitTop && m.scanlineY <= portraitBottom {
+					continue
+				}
+			}
 			builder.WriteString(cursorAt(x, m.scanlineY+1))
 			builder.WriteString(scanStyle.Render("·"))
 		}
