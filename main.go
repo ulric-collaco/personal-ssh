@@ -102,6 +102,7 @@ type model struct {
 	introRunes   []rune
 	introVisible int
 	startupTicks int
+	aboutLines   []string
 
 	project projectInfo
 	contact []string
@@ -131,23 +132,8 @@ func newModel() model {
 	projectASCII := loadASCII(project.assetPath, []string{"(project art missing)"})
 
 	introLines := []string{
-		"     :::    ::: :::        :::::::::  ::::::::::: ::::::::          :::::::: ",
-		"    :+:    :+: :+:        :+:    :+:     :+:    :+:    :+:        :+:    :+: ",
-		"   +:+    +:+ +:+        +:+    +:+     +:+    +:+               +:+",
-		"  +#+    +:+ +#+        +#++:++#:      +#+    +#+               +#+",
-		" +#+    +#+ +#+        +#+    +#+     +#+    +#+               +#+",
-		"#+#    #+# #+#        #+#    #+#     #+#    #+#    #+#        #+#    #+#",
-		"########  ########## ###    ### ########### ########          ########",
-		"      ::::::::  :::        :::            :::      ::::::::   ::::::::",
-		"    :+:    :+: :+:        :+:          :+: :+:   :+:    :+: :+:    :+:",
-		"   +:+    +:+ +:+        +:+         +:+   +:+  +:+        +:+    +:+",
-		"  +#+    +:+ +#+        +#+        +#++:++#++: +#+        +#+    +:+",
-		" +#+    +#+ +#+        +#+        +#+     +#+ +#+        +#+    +#+",
-		"#+#    #+# #+#        #+#        #+#     #+# #+#    #+# #+#    #+#",
-		"########  ########## ########## ###     ###  ########   ########",
-		"",
-		"Computer Engineering Student",
-		"Builder of interesting systems and tools",
+		"ULRIC",
+		"COLLACO",
 	}
 	introJoined := strings.Join(introLines, "\n")
 
@@ -158,6 +144,7 @@ func newModel() model {
 			{name: "Amber Retro", primary: "#FFDCA3", accent: "#FF9F1C", highlight: "#FFF0A3", particle: "#FF6A3D", scanline: "#5A3D00", enableScanline: true},
 			{name: "Minimal White", primary: "#F5F5F5", accent: "#9EC5FF", highlight: "#FFE9A8", particle: "#BEE7D3", scanline: "#7A7A7A", enableScanline: false},
 		},
+		themeIndex:       1,
 		scene:            sceneHome,
 		selected:         navProject,
 		portraitOriginal: portrait,
@@ -170,8 +157,18 @@ func newModel() model {
 		introLines:       introLines,
 		introText:        introJoined,
 		introRunes:       []rune(introJoined),
-		project:          project,
-		projectASCII:     projectASCII,
+		aboutLines: []string{
+			"ABOUT ME",
+			"I build fast, break limits, and ship clean.",
+			"Web x Cybersecurity is my home turf.",
+			"I made a Pastebin/Rentry-style clone.",
+			"I built a gyro car and my own control app.",
+			"I turn rough ideas into working systems.",
+			"Currently grinding hard for internships.",
+			"Always building. Always learning. Always shipping.",
+		},
+		project:      project,
+		projectASCII: projectASCII,
 		contact: []string{
 			"GitHub: github.com/ulric",
 			"Email: ulric@example.com",
@@ -240,29 +237,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.themeIndex = (m.themeIndex + 1) % len(m.themes)
 			return m, nil
 		case "left":
+			if m.transition.active {
+				return m, nil
+			}
 			m.selected = navItem((int(m.selected) - 1 + 2) % 2)
-			if m.scene != sceneHome && !m.transition.active {
-				to := sceneProject
-				if m.selected == navContact {
-					to = sceneContact
-				}
-				if to != m.scene {
-					m.startTransition(to, -1)
-					return m, transitionTick()
-				}
+			to := sceneProject
+			if m.selected == navContact {
+				to = sceneContact
+			}
+			if to != m.scene {
+				m.startTransition(to, -1)
+				return m, transitionTick()
 			}
 			return m, nil
 		case "right":
+			if m.transition.active {
+				return m, nil
+			}
 			m.selected = navItem((int(m.selected) + 1) % 2)
-			if m.scene != sceneHome && !m.transition.active {
-				to := sceneProject
-				if m.selected == navContact {
-					to = sceneContact
-				}
-				if to != m.scene {
-					m.startTransition(to, 1)
-					return m, transitionTick()
-				}
+			to := sceneProject
+			if m.selected == navContact {
+				to = sceneContact
+			}
+			if to != m.scene {
+				m.startTransition(to, 1)
+				return m, transitionTick()
 			}
 			return m, nil
 		case "enter":
@@ -357,8 +356,8 @@ func (m *model) refreshLayout() {
 
 	contentTop := max(2, m.height/10)
 	contentBottom := m.height - 4
-	maxH := max(6, contentBottom-contentTop)
-	maxW := max(20, m.width-4)
+	maxH := max(6, (contentBottom-contentTop)*70/100)
+	maxW := max(20, m.width*42/100)
 	fitted := fitASCIIToBox(m.portraitOriginal, maxW, maxH)
 	m.portraitFitted = fitted
 	if m.revealDone {
@@ -539,11 +538,13 @@ func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color,
 		if x < 0 || x >= m.width {
 			continue
 		}
-		if ch == ' ' {
-			continue
-		}
 		lines[y][x] = ch
 		key := y*m.width + x
+		if ch == ' ' {
+			delete(colorMap, key)
+			delete(boldMap, key)
+			continue
+		}
 		colorMap[key] = color
 		boldMap[key] = bold
 	}
@@ -612,6 +613,7 @@ func (m model) renderScene(t theme, scene sceneMode) []string {
 func (m model) renderHomeScene(t theme) []string {
 	portrait := m.renderPortrait(t)
 	intro := m.renderIntroText(t)
+	about := m.aboutLines
 
 	portraitPlain := make([]string, 0, len(portrait))
 	portraitW := 0
@@ -624,12 +626,22 @@ func (m model) renderHomeScene(t theme) []string {
 		}
 	}
 
-	introPlain := make([]string, 0, len(intro))
+	introPlain := make([]string, 0, len(intro)+1+len(about))
 	introW := 0
 	for _, l := range intro {
 		p := stripANSI(l)
 		introPlain = append(introPlain, p)
 		w := len([]rune(p))
+		if w > introW {
+			introW = w
+		}
+	}
+	if len(introPlain) > 0 {
+		introPlain = append(introPlain, "")
+	}
+	for _, l := range about {
+		introPlain = append(introPlain, l)
+		w := len([]rune(l))
 		if w > introW {
 			introW = w
 		}
