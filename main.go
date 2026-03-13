@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"strings"
@@ -22,53 +21,56 @@ type theme struct {
 	enableScanline bool
 }
 
-type particle struct {
-	x     int
-	y     int
-	glyph rune
-	phase int
-	drift int
-}
-
-type matrixDrop struct {
-	x      int
-	y      float64
-	speed  float64
-	length int
-}
-
-type pageMode int
+type sceneMode int
 
 const (
-	modeHome pageMode = iota
-	modeProjects
-	modeAbout
-	modeContact
-	modeProjectDetail
+	sceneHome sceneMode = iota
+	sceneProject
+	sceneContact
 )
 
-type project struct {
-	title       string
-	assetPath   string
-	description string
+type navItem int
+
+const (
+	navProject navItem = iota
+	navContact
+)
+
+type star struct {
+	x          int
+	y          int
+	glyph      rune
+	brightness int
+	dx         int
+	dy         int
 }
 
 type transition struct {
 	active    bool
-	direction int
 	elapsed   time.Duration
 	duration  time.Duration
-	fromMode  pageMode
-	toMode    pageMode
+	fromScene sceneMode
+	toScene   sceneMode
+	direction int
+}
+
+type projectInfo struct {
+	title       string
+	assetPath   string
+	description []string
 }
 
 type (
-	particleTickMsg   time.Time
+	starTickMsg       time.Time
 	revealTickMsg     time.Time
 	typeTickMsg       time.Time
-	scanlineTickMsg   time.Time
-	matrixTickMsg     time.Time
+	shimmerTickMsg    time.Time
 	transitionTickMsg time.Time
+)
+
+const (
+	typeTickInterval  = 30 * time.Millisecond
+	startupTotalTicks = 70 // ~2.1s for full intro typing
 )
 
 type model struct {
@@ -77,34 +79,34 @@ type model struct {
 
 	themes     []theme
 	themeIndex int
-	matrixMode bool
 
-	portrait       []string
-	revealLines    int
-	scaledPortrait []string
-
-	introLines    []string
-	introProgress int
-	bodyProgress  int
-	navbarPhase   int
-	uiPhase       int
-	hintOffset    int
-	colorPhase    int
-	colorDelay    int
-
-	navItems    []string
-	selectedNav int
-	currentMode pageMode
-
-	projects        []project
-	selectedProject int
-	projectASCII    map[string][]string
-
-	particles []particle
-	scanlineY int
-	matrix    []matrixDrop
+	scene    sceneMode
+	selected navItem
 
 	transition transition
+
+	stars []star
+
+	portraitOriginal []string
+	portraitFitted   []string
+	revealLines      int
+	revealDone       bool
+
+	shimmerActive bool
+	shimmerX      int
+	shimmerWait   int
+	shimmerPhase  int
+
+	introLines   []string
+	introText    string
+	introRunes   []rune
+	introVisible int
+	startupTicks int
+
+	project projectInfo
+	contact []string
+
+	projectASCII []string
 }
 
 func main() {
@@ -118,15 +120,36 @@ func main() {
 
 func newModel() model {
 	portrait := loadASCII("assets/me_ascii.txt", []string{"(portrait missing: assets/me_ascii.txt)"})
-	projects := []project{
-		{title: "Gyro Controlled Car", assetPath: "assets/projects/gyro_car.txt", description: "A gyro-stabilized RC platform with embedded control loops and responsive remote steering."},
-		{title: "ChatRTX Clone", assetPath: "assets/projects/chatrtx.txt", description: "A local retrieval-augmented chat interface optimized for low-latency terminal workflows."},
+	project := projectInfo{
+		title:     "Gyro Controlled Car",
+		assetPath: "assets/projects/gyro_car.txt",
+		description: []string{
+			"A gyro-stabilized RC platform with responsive steering.",
+			"Embedded control loops tuned for smooth motion.",
+		},
 	}
+	projectASCII := loadASCII(project.assetPath, []string{"(project art missing)"})
 
-	projectASCII := make(map[string][]string, len(projects))
-	for _, p := range projects {
-		projectASCII[p.assetPath] = loadASCII(p.assetPath, []string{"(project art missing)"})
+	introLines := []string{
+		"     :::    ::: :::        :::::::::  ::::::::::: ::::::::          :::::::: ",
+		"    :+:    :+: :+:        :+:    :+:     :+:    :+:    :+:        :+:    :+: ",
+		"   +:+    +:+ +:+        +:+    +:+     +:+    +:+               +:+",
+		"  +#+    +:+ +#+        +#++:++#:      +#+    +#+               +#+",
+		" +#+    +#+ +#+        +#+    +#+     +#+    +#+               +#+",
+		"#+#    #+# #+#        #+#    #+#     #+#    #+#    #+#        #+#    #+#",
+		"########  ########## ###    ### ########### ########          ########",
+		"      ::::::::  :::        :::            :::      ::::::::   ::::::::",
+		"    :+:    :+: :+:        :+:          :+: :+:   :+:    :+: :+:    :+:",
+		"   +:+    +:+ +:+        +:+         +:+   +:+  +:+        +:+    +:+",
+		"  +#+    +:+ +#+        +#+        +#++:++#++: +#+        +#+    +:+",
+		" +#+    +#+ +#+        +#+        +#+     +#+ +#+        +#+    +#+",
+		"#+#    #+# #+#        #+#        #+#     #+# #+#    #+# #+#    #+#",
+		"########  ########## ########## ###     ###  ########   ########",
+		"",
+		"Computer Engineering Student",
+		"Builder of interesting systems and tools",
 	}
+	introJoined := strings.Join(introLines, "\n")
 
 	m := model{
 		themes: []theme{
@@ -135,24 +158,27 @@ func newModel() model {
 			{name: "Amber Retro", primary: "#FFDCA3", accent: "#FF9F1C", highlight: "#FFF0A3", particle: "#FF6A3D", scanline: "#5A3D00", enableScanline: true},
 			{name: "Minimal White", primary: "#F5F5F5", accent: "#9EC5FF", highlight: "#FFE9A8", particle: "#BEE7D3", scanline: "#7A7A7A", enableScanline: false},
 		},
-		portrait:       portrait,
-		revealLines:    len(portrait),
-		scaledPortrait: portrait,
-		introLines: []string{
-			"Hello, I'm Ulric Collaco",
-			"Computer Engineering Student",
-			"Builder of interesting systems and tools",
+		scene:            sceneHome,
+		selected:         navProject,
+		portraitOriginal: portrait,
+		portraitFitted:   portrait,
+		revealLines:      0,
+		revealDone:       false,
+		shimmerActive:    false,
+		shimmerX:         -5,
+		shimmerWait:      20,
+		introLines:       introLines,
+		introText:        introJoined,
+		introRunes:       []rune(introJoined),
+		project:          project,
+		projectASCII:     projectASCII,
+		contact: []string{
+			"GitHub: github.com/ulric",
+			"Email: ulric@example.com",
+			"LinkedIn: linkedin.com/in/ulric",
 		},
-		navItems:     []string{"Home", "Projects", "About", "Contact"},
-		selectedNav:  0,
-		currentMode:  modeHome,
-		projects:     projects,
-		projectASCII: projectASCII,
-		scanlineY:    0,
-		colorDelay:   8,
 	}
 
-	m.resetTyping()
 	return m
 }
 
@@ -173,27 +199,23 @@ func loadASCII(path string, fallback []string) []string {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(particleTick(), revealTick(), typeTick(), scanlineTick(), matrixTick())
+	return tea.Batch(starTick(), revealTick(), typeTick(), shimmerTick())
 }
 
-func particleTick() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg { return particleTickMsg(t) })
+func starTick() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return starTickMsg(t) })
 }
 
 func revealTick() tea.Cmd {
-	return tea.Tick(35*time.Millisecond, func(t time.Time) tea.Msg { return revealTickMsg(t) })
+	return tea.Tick(40*time.Millisecond, func(t time.Time) tea.Msg { return revealTickMsg(t) })
 }
 
 func typeTick() tea.Cmd {
-	return tea.Tick(28*time.Millisecond, func(t time.Time) tea.Msg { return typeTickMsg(t) })
+	return tea.Tick(typeTickInterval, func(t time.Time) tea.Msg { return typeTickMsg(t) })
 }
 
-func scanlineTick() tea.Cmd {
-	return tea.Tick(110*time.Millisecond, func(t time.Time) tea.Msg { return scanlineTickMsg(t) })
-}
-
-func matrixTick() tea.Cmd {
-	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return matrixTickMsg(t) })
+func shimmerTick() tea.Cmd {
+	return tea.Tick(160*time.Millisecond, func(t time.Time) tea.Msg { return shimmerTickMsg(t) })
 }
 
 func transitionTick() tea.Cmd {
@@ -205,9 +227,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.refreshScaledPortrait()
-		m.reseedParticles()
-		m.reseedMatrix()
+		m.refreshLayout()
+		m.reseedStars()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -215,99 +236,89 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch s {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "ctrl+m":
-			m.matrixMode = !m.matrixMode
-			if m.matrixMode {
-				m.themeIndex = 0
-				m.reseedMatrix()
-			}
-			m.reseedParticles()
-			return m, nil
 		case "t":
 			m.themeIndex = (m.themeIndex + 1) % len(m.themes)
 			return m, nil
-		case "left", "h":
-			m.selectedNav = (m.selectedNav - 1 + len(m.navItems)) % len(m.navItems)
-			return m, nil
-		case "right", "l":
-			m.selectedNav = (m.selectedNav + 1) % len(m.navItems)
-			return m, nil
-		case "up", "k":
-			if m.currentMode == modeProjects || m.currentMode == modeProjectDetail {
-				m.selectedProject = (m.selectedProject - 1 + len(m.projects)) % len(m.projects)
-				if m.currentMode == modeProjectDetail {
-					m.startTransition(modeProjectDetail, 1)
+		case "left":
+			m.selected = navItem((int(m.selected) - 1 + 2) % 2)
+			if m.scene != sceneHome && !m.transition.active {
+				to := sceneProject
+				if m.selected == navContact {
+					to = sceneContact
+				}
+				if to != m.scene {
+					m.startTransition(to, -1)
+					return m, transitionTick()
 				}
 			}
 			return m, nil
-		case "down", "j":
-			if m.currentMode == modeProjects || m.currentMode == modeProjectDetail {
-				m.selectedProject = (m.selectedProject + 1) % len(m.projects)
-				if m.currentMode == modeProjectDetail {
-					m.startTransition(modeProjectDetail, -1)
+		case "right":
+			m.selected = navItem((int(m.selected) + 1) % 2)
+			if m.scene != sceneHome && !m.transition.active {
+				to := sceneProject
+				if m.selected == navContact {
+					to = sceneContact
 				}
-			}
-			return m, nil
-		case "esc", "backspace":
-			if m.currentMode == modeProjectDetail {
-				m.startTransition(modeProjects, -1)
-				return m, transitionTick()
+				if to != m.scene {
+					m.startTransition(to, 1)
+					return m, transitionTick()
+				}
 			}
 			return m, nil
 		case "enter":
-			if m.currentMode == modeProjects && navToMode(m.selectedNav) == modeProjects {
-				m.startTransition(modeProjectDetail, 1)
+			if m.scene == sceneHome && !m.transition.active {
+				to := sceneProject
+				dir := 1
+				if m.selected == navContact {
+					to = sceneContact
+					dir = -1
+				}
+				m.startTransition(to, dir)
 				return m, transitionTick()
 			}
-			target := navToMode(m.selectedNav)
-			if target != m.currentMode {
-				direction := 1
-				if m.selectedNav < navIndexForMode(m.currentMode) {
-					direction = -1
-				}
-				m.startTransition(target, direction)
+			return m, nil
+		case "esc", "backspace":
+			if m.scene != sceneHome && !m.transition.active {
+				m.startTransition(sceneHome, -1)
 				return m, transitionTick()
 			}
 			return m, nil
 		}
 		return m, nil
 
-	case particleTickMsg:
-		m.updateParticles()
-		return m, particleTick()
+	case starTickMsg:
+		m.updateStars()
+		return m, starTick()
 
 	case revealTickMsg:
-		m.revealLines = len(m.scaledPortrait)
+		if !m.revealDone {
+			m.revealLines += 3 + rand.Intn(2)
+			if m.revealLines >= len(m.portraitFitted) {
+				m.revealLines = len(m.portraitFitted)
+				m.revealDone = true
+			}
+		}
 		return m, revealTick()
 
 	case typeTickMsg:
-		if m.currentMode == modeHome {
-			totalIntro := len([]rune(strings.Join(m.introLines, "\n")))
-			if m.introProgress < totalIntro {
-				m.introProgress++
+		if m.scene == sceneHome && m.introVisible < len(m.introRunes) {
+			m.startupTicks++
+			remainingTicks := max(1, startupTotalTicks-m.startupTicks+1)
+			remainingChars := len(m.introRunes) - m.introVisible
+			step := (remainingChars + remainingTicks - 1) / remainingTicks
+			if step < 1 {
+				step = 1
+			}
+			m.introVisible += step
+			if m.introVisible > len(m.introRunes) {
+				m.introVisible = len(m.introRunes)
 			}
 		}
-		maxBody := len([]rune(m.currentBodyText()))
-		if m.bodyProgress < maxBody {
-			m.bodyProgress++
-		}
-		m.navbarPhase = (m.navbarPhase + 1) % 8
-		m.uiPhase = (m.uiPhase + 1) % 120
-		m.hintOffset++
-		m.updateColorPhase()
 		return m, typeTick()
 
-	case scanlineTickMsg:
-		if m.height > 0 {
-			m.scanlineY = (m.scanlineY + 1) % m.height
-		}
-		return m, scanlineTick()
-
-	case matrixTickMsg:
-		if m.matrixMode {
-			m.updateMatrix()
-		}
-		return m, matrixTick()
+	case shimmerTickMsg:
+		m.updateShimmer()
+		return m, shimmerTick()
 
 	case transitionTickMsg:
 		if !m.transition.active {
@@ -315,428 +326,258 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.transition.elapsed += 20 * time.Millisecond
 		if m.transition.elapsed >= m.transition.duration {
-			m.currentMode = m.transition.toMode
+			m.scene = m.transition.toScene
 			m.transition.active = false
-			m.resetTyping()
-			return m, nil
+			m.transition.elapsed = 0
 		}
-		return m, transitionTick()
+		if m.transition.active {
+			return m, transitionTick()
+		}
+		return m, nil
 	}
 
 	return m, nil
 }
 
-func (m *model) startTransition(to pageMode, direction int) {
+func (m *model) startTransition(to sceneMode, direction int) {
 	m.transition = transition{
 		active:    true,
-		direction: direction,
 		elapsed:   0,
-		duration:  320 * time.Millisecond,
-		fromMode:  m.currentMode,
-		toMode:    to,
+		duration:  220 * time.Millisecond,
+		fromScene: m.scene,
+		toScene:   to,
+		direction: direction,
 	}
 }
 
-func navToMode(index int) pageMode {
-	switch index {
-	case 0:
-		return modeHome
-	case 1:
-		return modeProjects
-	case 2:
-		return modeAbout
-	default:
-		return modeContact
-	}
-}
-
-func navIndexForMode(mode pageMode) int {
-	switch mode {
-	case modeHome:
-		return 0
-	case modeProjects, modeProjectDetail:
-		return 1
-	case modeAbout:
-		return 2
-	default:
-		return 3
-	}
-}
-
-func (m *model) resetTyping() {
-	m.introProgress = 0
-	m.bodyProgress = 0
-}
-
-func (m *model) updateColorPhase() {
-	m.colorDelay--
-	if m.colorDelay > 0 {
+func (m *model) refreshLayout() {
+	if m.width <= 0 || m.height <= 0 {
 		return
 	}
 
-	// Slower, non-linear palette motion for a less mechanical look.
-	m.colorDelay = 6 + rand.Intn(10)
-	step := rand.Intn(5) - 2
-	if step == 0 {
-		if rand.Intn(2) == 0 {
-			return
-		}
-		step = 1
+	contentTop := max(2, m.height/10)
+	contentBottom := m.height - 4
+	maxH := max(6, contentBottom-contentTop)
+	maxW := max(20, m.width-4)
+	fitted := fitASCIIToBox(m.portraitOriginal, maxW, maxH)
+	m.portraitFitted = fitted
+	if m.revealDone {
+		m.revealLines = len(m.portraitFitted)
+	} else if m.revealLines > len(m.portraitFitted) {
+		m.revealLines = len(m.portraitFitted)
 	}
-
-	m.colorPhase = (m.colorPhase + step + 10000) % 10000
 }
 
-func (m *model) refreshScaledPortrait() {
-	if m.height <= 0 || m.width <= 0 {
-		m.scaledPortrait = m.portrait
-		return
-	}
-
-	// Preserve source glyph fidelity by cropping instead of resampling.
-	targetHeight := max(8, int(float64(m.height)*0.62))
-	targetWidth := max(24, int(float64(m.width)*0.96))
-	m.scaledPortrait = cropPortraitToFit(m.portrait, targetWidth, targetHeight)
-
-	if m.revealLines > len(m.scaledPortrait) {
-		m.revealLines = len(m.scaledPortrait)
-	}
-	m.revealLines = len(m.scaledPortrait)
-}
-
-func (m model) portraitBounds() (int, int, int, int, bool) {
-	portraitVisible := m.scaledPortrait[:min(m.revealLines, len(m.scaledPortrait))]
-	if len(portraitVisible) == 0 || m.width <= 0 || m.height <= 0 {
-		return 0, 0, 0, 0, false
-	}
-
-	topBreath := max(2, m.height/10)
-	portraitTop := topBreath
-	if portraitTop+len(portraitVisible) > m.height-6 {
-		portraitTop = max(2, m.height-len(portraitVisible)-6)
-	}
-
-	maxW := 0
-	for _, line := range portraitVisible {
-		w := lipgloss.Width(line)
-		if w > maxW {
-			maxW = w
-		}
-	}
-	if maxW <= 0 {
-		return 0, 0, 0, 0, false
-	}
-
-	left := (m.width - maxW) / 2
-	right := left + maxW - 1
-	top := portraitTop
-	bottom := portraitTop + len(portraitVisible) - 1
-
-	if left < 0 {
-		left = 0
-	}
-	if right >= m.width {
-		right = m.width - 1
-	}
-	if top < 0 {
-		top = 0
-	}
-	if bottom >= m.height {
-		bottom = m.height - 1
-	}
-
-	return left, right, top, bottom, true
-}
-
-func cropPortraitToFit(lines []string, maxWidth, maxHeight int) []string {
-	if len(lines) == 0 || maxWidth <= 0 || maxHeight <= 0 {
+func fitASCIIToBox(lines []string, maxW, maxH int) []string {
+	if len(lines) == 0 {
 		return lines
 	}
-
-	startY := 0
-	endY := len(lines)
-	if len(lines) > maxHeight {
-		startY = (len(lines) - maxHeight) / 2
-		endY = startY + maxHeight
+	if maxW <= 0 || maxH <= 0 {
+		return []string{}
 	}
-	visible := lines[startY:endY]
 
-	result := make([]string, 0, len(visible))
-	for _, line := range visible {
+	// Downsample rows when needed, then center-crop remaining height.
+	rows := lines
+	if len(rows) > maxH {
+		step := float64(len(rows)) / float64(maxH)
+		tmp := make([]string, 0, maxH)
+		for i := 0; i < maxH; i++ {
+			idx := int(float64(i) * step)
+			if idx < 0 {
+				idx = 0
+			}
+			if idx >= len(rows) {
+				idx = len(rows) - 1
+			}
+			tmp = append(tmp, rows[idx])
+		}
+		rows = tmp
+	}
+	if len(rows) > maxH {
+		start := (len(rows) - maxH) / 2
+		rows = rows[start : start+maxH]
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, line := range rows {
 		r := []rune(line)
-		if len(r) <= maxWidth {
-			result = append(result, line)
+		if len(r) <= maxW {
+			out = append(out, line)
 			continue
 		}
-		startX := (len(r) - maxWidth) / 2
-		endX := startX + maxWidth
-		result = append(result, string(r[startX:endX]))
+		start := (len(r) - maxW) / 2
+		out = append(out, string(r[start:start+maxW]))
 	}
-
-	return result
+	return out
 }
 
-func (m *model) reseedParticles() {
+func (m *model) reseedStars() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	target := max(180, (m.width*m.height)/45)
-	if m.matrixMode {
-		target = max(260, (m.width*m.height)/30)
-	}
-	m.particles = make([]particle, 0, target)
+	target := max(140, (m.width*m.height)/20)
+	m.stars = make([]star, 0, target)
+	glyphs := []rune{'.', '*', '·', '+'}
 	for i := 0; i < target; i++ {
-		m.particles = append(m.particles, m.newParticle())
-	}
-}
-
-func (m *model) newParticle() particle {
-	glyphs := []rune{'✦', '✧', '⋆', '✶', '*', '·'}
-	if m.matrixMode {
-		glyphs = []rune{'0', '1', '·', '.'}
-	}
-	return particle{
-		x:     rand.Intn(max(1, m.width)),
-		y:     rand.Intn(max(1, m.height)),
-		glyph: glyphs[rand.Intn(len(glyphs))],
-		phase: rand.Intn(4),
-		drift: rand.Intn(3) - 1,
-	}
-}
-
-func (m *model) updateParticles() {
-	if len(m.particles) == 0 {
-		m.reseedParticles()
-	}
-	for i := range m.particles {
-		m.particles[i].phase = (m.particles[i].phase + 1) % 4
-		if rand.Intn(5) == 0 {
-			m.particles[i].x += m.particles[i].drift
-		}
-		if rand.Intn(12) == 0 {
-			m.particles[i].y++
-		}
-		if rand.Intn(20) == 0 {
-			m.particles[i].y--
-		}
-		if m.particles[i].x < 0 {
-			m.particles[i].x = m.width - 1
-		}
-		if m.particles[i].x >= m.width {
-			m.particles[i].x = 0
-		}
-		if m.particles[i].y < 0 {
-			m.particles[i].y = m.height - 1
-		}
-		if m.particles[i].y >= m.height {
-			m.particles[i].y = 0
-		}
-	}
-}
-
-func (m *model) reseedMatrix() {
-	if m.width <= 0 || m.height <= 0 {
-		return
-	}
-	m.matrix = m.matrix[:0]
-	if !m.matrixMode {
-		return
-	}
-	columns := max(10, m.width/3)
-	for i := 0; i < columns; i++ {
-		m.matrix = append(m.matrix, matrixDrop{
-			x:      rand.Intn(max(1, m.width)),
-			y:      -float64(rand.Intn(max(1, m.height))),
-			speed:  0.6 + rand.Float64()*1.2,
-			length: 3 + rand.Intn(10),
+		m.stars = append(m.stars, star{
+			x:          rand.Intn(max(1, m.width)),
+			y:          rand.Intn(max(1, m.height)),
+			glyph:      glyphs[rand.Intn(len(glyphs))],
+			brightness: rand.Intn(3),
+			dx:         rand.Intn(3) - 1,
+			dy:         rand.Intn(3) - 1,
 		})
 	}
 }
 
-func (m *model) updateMatrix() {
-	if len(m.matrix) == 0 {
-		m.reseedMatrix()
+func (m *model) updateStars() {
+	if len(m.stars) == 0 {
+		m.reseedStars()
 	}
-	for i := range m.matrix {
-		m.matrix[i].y += m.matrix[i].speed
-		if int(m.matrix[i].y)-m.matrix[i].length > m.height {
-			m.matrix[i].x = rand.Intn(max(1, m.width))
-			m.matrix[i].y = -float64(rand.Intn(max(1, m.height/2)))
-			m.matrix[i].speed = 0.6 + rand.Float64()*1.2
-			m.matrix[i].length = 3 + rand.Intn(10)
+	for i := range m.stars {
+		if rand.Intn(3) == 0 {
+			m.stars[i].brightness = rand.Intn(3)
 		}
+		if rand.Intn(6) == 0 {
+			m.stars[i].x += m.stars[i].dx
+		}
+		if rand.Intn(10) == 0 {
+			m.stars[i].y += m.stars[i].dy
+		}
+		if rand.Intn(20) == 0 {
+			m.stars[i].dx = rand.Intn(3) - 1
+			m.stars[i].dy = rand.Intn(3) - 1
+		}
+
+		if m.stars[i].x < 0 {
+			m.stars[i].x = m.width - 1
+		}
+		if m.stars[i].x >= m.width {
+			m.stars[i].x = 0
+		}
+		if m.stars[i].y < 0 {
+			m.stars[i].y = m.height - 1
+		}
+		if m.stars[i].y >= m.height {
+			m.stars[i].y = 0
+		}
+	}
+}
+
+func (m *model) updateShimmer() {
+	m.shimmerPhase++
+	if !m.revealDone {
+		return
+	}
+	if !m.shimmerActive {
+		m.shimmerWait--
+		if m.shimmerWait <= 0 {
+			m.shimmerActive = true
+			m.shimmerX = -4
+		}
+		return
+	}
+	m.shimmerX++
+	if m.shimmerX > m.maxPortraitWidth()+4 {
+		m.shimmerActive = false
+		m.shimmerWait = 18 + rand.Intn(16)
 	}
 }
 
 func (m model) View() string {
-	if m.width == 0 || m.height == 0 {
-		return "Initializing terminal..."
+	if m.width <= 0 || m.height <= 0 {
+		return ""
 	}
 
 	t := m.activeTheme()
-	if m.matrixMode {
-		t = m.matrixTheme()
+	lines := make([][]rune, m.height)
+	for y := 0; y < m.height; y++ {
+		lines[y] = []rune(strings.Repeat(" ", m.width))
 	}
 
-	base := m.renderCanvas(t)
-	overlay := m.renderOverlay(t)
-	return base + overlay
-}
+	colorMap := make(map[int]lipgloss.Color, m.width*m.height)
+	boldMap := make(map[int]bool, m.width*m.height)
 
-func (m model) renderCanvas(t theme) string {
-	lines := make([]string, m.height)
-	for i := range lines {
-		lines[i] = strings.Repeat(" ", max(1, m.width))
-	}
+	m.paintStars(lines, colorMap, boldMap, t)
 
-	if m.height > 0 {
-		lines[0] = centerLine(m.renderStatusBar(t), m.width)
+	var page []string
+	if m.transition.active {
+		page = m.renderTransitionFrame(t)
+	} else {
+		page = m.renderScene(t, m.scene)
 	}
-	if m.transition.active && m.height > 1 {
-		lines[1] = centerLine(m.renderTransitionBar(t), m.width)
-	}
-
-	portraitVisible := m.scaledPortrait[:min(m.revealLines, len(m.scaledPortrait))]
-	palette := themePalette(t)
-	portraitStyle := lipgloss.NewStyle().Foreground(t.accent).Bold(true)
-
-	topBreath := max(2, m.height/10)
-	portraitTop := topBreath
-	if portraitTop+len(portraitVisible) > m.height-6 {
-		portraitTop = max(2, m.height-len(portraitVisible)-6)
-	}
-	for i, raw := range portraitVisible {
-		y := portraitTop + i
-		if y >= 0 && y < m.height {
-			lines[y] = centerLine(portraitStyle.Render(raw), m.width)
+	pageTop := max(1, (m.height-len(page))/2)
+	for i, raw := range page {
+		y := pageTop + i
+		if y < 0 || y >= m.height {
+			continue
 		}
+		plain := stripANSI(raw)
+		m.blitCenteredLine(lines, colorMap, boldMap, plain, y, t.primary, false)
 	}
 
-	contentLines := m.renderPageContent(t)
-	contentLines = m.applyTransition(contentLines)
-	contentStart := portraitTop + len(portraitVisible) + 1
-	contentLimit := m.height - 3
-	for i, raw := range contentLines {
-		y := contentStart + i
-		if y >= 0 && y < contentLimit {
-			if strings.Contains(raw, "\x1b[") {
-				lines[y] = centerLine(raw, m.width)
-				continue
-			}
-			c := palette[(i+m.colorPhase)%len(palette)]
-			style := lipgloss.NewStyle().Foreground(c)
-			lines[y] = centerLine(style.Render(raw), m.width)
-		}
-	}
-
-	hintY := m.height - 3
-	if hintY >= 2 && hintY < m.height {
-		lines[hintY] = centerLine(m.renderHintTicker(t, max(24, m.width-8)), m.width)
-	}
-
+	nav := m.renderNav(t)
 	navY := m.height - 2
 	if navY >= 0 && navY < m.height {
-		lines[navY] = centerLine(m.renderNavbar(t), m.width)
+		m.blitCenteredLine(lines, colorMap, boldMap, stripANSI(nav), navY, t.highlight, true)
 	}
 
-	return strings.Join(lines, "\n")
+	return buildFrame(lines, colorMap, boldMap, m.width, m.height)
 }
 
-func centerLine(s string, width int) string {
-	w := lipgloss.Width(s)
-	if w >= width {
-		return s
-	}
-	left := (width - w) / 2
-	right := width - w - left
-	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
-}
-
-func (m model) renderPageContent(t theme) []string {
-	switch m.currentMode {
-	case modeHome:
-		return m.renderHomeContent()
-	case modeProjects:
-		return m.renderProjectsContent(t)
-	case modeProjectDetail:
-		return m.renderProjectDetailContent(t)
-	case modeAbout:
-		about := "Ulric is a computer engineering student focused on immersive terminal interfaces, systems programming, and building practical tools with strong UX detail."
-		return []string{typed(about, m.bodyProgress)}
-	case modeContact:
-		return []string{
-			typed("Github: github.com/ulric", m.bodyProgress),
-			typed("Email: ulric@example.com", m.bodyProgress),
-			typed("LinkedIn: linkedin.com/in/ulric", m.bodyProgress),
-		}
-	default:
-		return []string{}
-	}
-}
-
-func (m model) renderHomeContent() []string {
-	joined := strings.Join(m.introLines, "\n")
-	visible := typed(joined, m.introProgress)
-	return strings.Split(visible, "\n")
-}
-
-func (m model) renderProjectsContent(t theme) []string {
-	lines := []string{"Projects"}
-	selectedStyle := lipgloss.NewStyle().Foreground(t.highlight).Bold(m.navbarPhase < 4)
-	normalStyle := lipgloss.NewStyle().Foreground(t.primary)
-	for i, p := range m.projects {
-		if i == m.selectedProject {
-			lines = append(lines, selectedStyle.Render("[ "+p.title+" ]"))
-		} else {
-			lines = append(lines, normalStyle.Render(p.title))
-		}
-	}
-	lines = append(lines, "Enter to open project")
-	return lines
-}
-
-func (m model) renderProjectDetailContent(t theme) []string {
-	p := m.projects[m.selectedProject]
-	art := m.projectASCII[p.assetPath]
-	titleStyle := lipgloss.NewStyle().Foreground(t.highlight).Bold(true)
-	lines := []string{titleStyle.Render(p.title), ""}
-	for _, line := range art {
-		lines = append(lines, line)
-	}
-	lines = append(lines, "")
-	lines = append(lines, typed(p.description, m.bodyProgress))
-	lines = append(lines, "Esc to go back")
-	return lines
-}
-
-func (m model) currentBodyText() string {
-	switch m.currentMode {
-	case modeAbout:
-		return "Ulric is a computer engineering student focused on immersive terminal interfaces, systems programming, and building practical tools with strong UX detail."
-	case modeContact:
-		return "Github: github.com/ulric\nEmail: ulric@example.com\nLinkedIn: linkedin.com/in/ulric"
-	case modeProjectDetail:
-		return m.projects[m.selectedProject].description
-	default:
-		return ""
-	}
-}
-
-func typed(text string, progress int) string {
+func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
 	r := []rune(text)
-	if progress <= 0 {
-		return ""
+	if len(r) == 0 || y < 0 || y >= m.height {
+		return
 	}
-	if progress >= len(r) {
-		return text
+	x0 := (m.width - len(r)) / 2
+	if x0 < 0 {
+		x0 = 0
 	}
-	return string(r[:progress])
+	for i, ch := range r {
+		x := x0 + i
+		if x < 0 || x >= m.width {
+			continue
+		}
+		if ch == ' ' {
+			continue
+		}
+		lines[y][x] = ch
+		key := y*m.width + x
+		colorMap[key] = color
+		boldMap[key] = bold
+	}
 }
 
-func (m model) applyTransition(lines []string) []string {
-	if !m.transition.active {
-		return lines
+func (m model) paintStars(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, t theme) {
+	palette := []lipgloss.Color{t.scanline, t.particle, t.accent}
+	for _, s := range m.stars {
+		if s.x < 0 || s.x >= m.width || s.y < 0 || s.y >= m.height {
+			continue
+		}
+		lines[s.y][s.x] = s.glyph
+		idx := s.brightness
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(palette) {
+			idx = len(palette) - 1
+		}
+		key := s.y*m.width + s.x
+		colorMap[key] = palette[idx]
+		boldMap[key] = idx == 2
 	}
+}
+
+func (m model) renderTransitionFrame(t theme) []string {
+	from := m.renderScene(t, m.transition.fromScene)
+	to := m.renderScene(t, m.transition.toScene)
+
+	height := max(len(from), len(to))
+	width := max(linesWidth(from), linesWidth(to))
+	from = padLines(from, width, height)
+	to = padLines(to, width, height)
+
 	p := float64(m.transition.elapsed) / float64(m.transition.duration)
 	if p < 0 {
 		p = 0
@@ -744,231 +585,322 @@ func (m model) applyTransition(lines []string) []string {
 	if p > 1 {
 		p = 1
 	}
-	shift := int((1 - p) * 10)
-	trailCount := int((1 - p) * 4)
-	trail := strings.Repeat("·", trailCount)
-	out := make([]string, len(lines))
-	for i, line := range lines {
-		if m.transition.direction > 0 {
-			out[i] = trail + strings.Repeat(" ", shift) + line
+	cut := int(float64(width) * p)
+
+	out := make([]string, height)
+	for i := 0; i < height; i++ {
+		if m.transition.direction >= 0 {
+			out[i] = wipeStyled(from[i], to[i], cut, false)
 		} else {
-			out[i] = line + strings.Repeat(" ", shift) + trail
+			out[i] = wipeStyled(from[i], to[i], cut, true)
 		}
 	}
 	return out
 }
 
-func (m model) renderNavbar(t theme) string {
-	parts := make([]string, 0, len(m.navItems))
-	highlightColor := t.highlight
-	if m.navbarPhase < 4 {
-		highlightColor = t.accent
-	}
-	sel := lipgloss.NewStyle().Foreground(highlightColor).Bold(true)
-	left := "⟪"
-	right := "⟫"
-	if (m.uiPhase/4)%2 == 0 {
-		left = "⟨"
-		right = "⟩"
-	}
-
-	for i, item := range m.navItems {
-		if i == m.selectedNav {
-			parts = append(parts, rainbowText(left+" "+item+" "+right, themePalette(t), m.colorPhase+i*3, true))
-		} else {
-			parts = append(parts, rainbowText("• "+item+" •", themePalette(t), m.colorPhase+i*5, false))
-		}
-	}
-	bar := "✧ " + strings.Join(parts, "   ") + " ✧"
-	return sel.Render(bar)
-}
-
-func (m model) renderStatusBar(t theme) string {
-	spinner := []string{"◜", "◝", "◞", "◟"}
-	icon := spinner[(m.uiPhase/3)%len(spinner)]
-	mode := strings.ToUpper(modeLabel(m.currentMode))
-	badge := "LIVE"
-	if m.matrixMode {
-		badge = "MATRIX"
-	}
-	bar := fmt.Sprintf("%s ◈ %s ◈ THEME %s ◈ %s", icon, mode, strings.ToUpper(t.name), badge)
-	return rainbowText(bar, themePalette(t), m.colorPhase, true)
-}
-
-func (m model) renderHintTicker(t theme, width int) string {
-	hints := []string{
-		"h/l or arrows: switch tabs",
-		"j/k: move project",
-		"enter: open",
-		"esc: back",
-		"t: next theme",
-		"ctrl+m: matrix mode",
-	}
-	joined := strings.Join(hints, "  ✦  ")
-	ticker := marquee(joined, width, m.hintOffset)
-	return rainbowText("✦ "+ticker+" ✦", themePalette(t), m.colorPhase/2, false)
-}
-
-func (m model) renderTransitionBar(t theme) string {
-	if !m.transition.active {
-		return ""
-	}
-	p := float64(m.transition.elapsed) / float64(m.transition.duration)
-	if p < 0 {
-		p = 0
-	}
-	if p > 1 {
-		p = 1
-	}
-	width := max(12, m.width/3)
-	filled := int(float64(width) * p)
-	if filled > width {
-		filled = width
-	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-	text := fmt.Sprintf("◉ TRANSITION %s ◉", bar)
-	return rainbowText(text, themePalette(t), m.colorPhase/2, true)
-}
-
-func marquee(text string, width, offset int) string {
-	r := []rune(text)
-	if len(r) == 0 || width <= 0 {
-		return ""
-	}
-	if len(r) <= width {
-		return text
-	}
-	padding := []rune("   ")
-	loop := append(append([]rune{}, r...), padding...)
-	loop = append(loop, r...)
-	start := offset % (len(r) + len(padding))
-	end := start + width
-	if end > len(loop) {
-		end = len(loop)
-	}
-	return string(loop[start:end])
-}
-
-func modeLabel(mode pageMode) string {
-	switch mode {
-	case modeHome:
-		return "Home"
-	case modeProjects:
-		return "Projects"
-	case modeProjectDetail:
-		return "Project"
-	case modeAbout:
-		return "About"
+func (m model) renderScene(t theme, scene sceneMode) []string {
+	switch scene {
+	case sceneProject:
+		return m.renderProjectScene(t)
+	case sceneContact:
+		return m.renderContactScene(t)
 	default:
-		return "Contact"
+		return m.renderHomeScene(t)
 	}
 }
 
-func (m model) renderOverlay(t theme) string {
-	if m.width == 0 || m.height == 0 {
-		return ""
-	}
-	var builder strings.Builder
-	particleStyle := lipgloss.NewStyle().Foreground(t.particle)
-	matrixStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3BFF63"))
-	scanStyle := lipgloss.NewStyle().Foreground(t.scanline)
-	accentStyle := lipgloss.NewStyle().Foreground(t.accent)
-	highlightStyle := lipgloss.NewStyle().Foreground(t.highlight).Bold(true)
+func (m model) renderHomeScene(t theme) []string {
+	portrait := m.renderPortrait(t)
+	intro := m.renderIntroText(t)
 
-	portraitLeft, portraitRight, portraitTop, portraitBottom, hasPortrait := m.portraitBounds()
-
-	for _, p := range m.particles {
-		if hasPortrait && p.x >= portraitLeft && p.x <= portraitRight && p.y >= portraitTop && p.y <= portraitBottom {
-			continue
-		}
-		if p.x < 0 || p.x >= m.width || p.y < 0 || p.y >= m.height {
-			continue
-		}
-		builder.WriteString(cursorAt(p.x+1, p.y+1))
-		builder.WriteString(particleStyle.Render(string(p.glyph)))
-	}
-
-	cornerGlyphs := []string{"·", "•", "✦", "•"}
-	corner := cornerGlyphs[(m.uiPhase/2)%len(cornerGlyphs)]
-	corners := [][2]int{{2, 2}, {m.width - 1, 2}, {2, m.height - 1}, {m.width - 1, m.height - 1}}
-	for _, c := range corners {
-		x := c[0]
-		y := c[1]
-		if x <= 0 || y <= 0 || x > m.width || y > m.height {
-			continue
-		}
-		builder.WriteString(cursorAt(x, y))
-		builder.WriteString(accentStyle.Render(corner))
-	}
-
-	railRange := max(1, m.height-4)
-	railY := 3 + (m.uiPhase % railRange)
-	if railY > 2 && railY < m.height {
-		builder.WriteString(cursorAt(2, railY))
-		builder.WriteString(accentStyle.Render("▌"))
-		builder.WriteString(cursorAt(max(2, m.width-1), railY))
-		builder.WriteString(accentStyle.Render("▐"))
-	}
-
-	if t.enableScanline && m.scanlineY >= 0 && m.scanlineY < m.height {
-		for x := 1; x <= m.width; x += 2 {
-			if hasPortrait {
-				px := x - 1
-				if px >= portraitLeft && px <= portraitRight && m.scanlineY >= portraitTop && m.scanlineY <= portraitBottom {
-					continue
-				}
-			}
-			builder.WriteString(cursorAt(x, m.scanlineY+1))
-			builder.WriteString(scanStyle.Render("·"))
+	portraitPlain := make([]string, 0, len(portrait))
+	portraitW := 0
+	for _, l := range portrait {
+		p := stripANSI(l)
+		portraitPlain = append(portraitPlain, p)
+		w := len([]rune(p))
+		if w > portraitW {
+			portraitW = w
 		}
 	}
 
-	if m.matrixMode {
-		chars := []rune("01アイウカキクケコサシスセソ")
-		for _, drop := range m.matrix {
-			headY := int(drop.y)
-			for i := 0; i < drop.length; i++ {
-				y := headY - i
-				if y < 0 || y >= m.height || drop.x < 0 || drop.x >= m.width {
-					continue
-				}
-				builder.WriteString(cursorAt(drop.x+1, y+1))
-				if i == 0 {
-					builder.WriteString(matrixStyle.Render("█"))
-				} else {
-					builder.WriteString(matrixStyle.Render(string(chars[rand.Intn(len(chars))])))
+	introPlain := make([]string, 0, len(intro))
+	introW := 0
+	for _, l := range intro {
+		p := stripANSI(l)
+		introPlain = append(introPlain, p)
+		w := len([]rune(p))
+		if w > introW {
+			introW = w
+		}
+	}
+
+	gap := 4
+	totalW := portraitW + gap + introW
+	if totalW > m.width-2 {
+		gap = 2
+		totalW = portraitW + gap + introW
+	}
+	leftX := max(1, (m.width-totalW)/2)
+	rightX := leftX + portraitW + gap
+
+	blockH := max(len(portraitPlain), len(introPlain))
+	if blockH <= 0 {
+		blockH = 1
+	}
+	lines := make([]string, blockH)
+	for i := 0; i < blockH; i++ {
+		row := []rune(strings.Repeat(" ", max(1, m.width)))
+		if i < len(portraitPlain) {
+			for j, ch := range []rune(portraitPlain[i]) {
+				x := leftX + j
+				if x >= 0 && x < len(row) {
+					row[x] = ch
 				}
 			}
 		}
+		if i < len(introPlain) {
+			for j, ch := range []rune(introPlain[i]) {
+				x := rightX + j
+				if x >= 0 && x < len(row) {
+					row[x] = ch
+				}
+			}
+		}
+		lines[i] = string(row)
 	}
 
-	if m.transition.active {
-		p := float64(m.transition.elapsed) / float64(m.transition.duration)
-		if p < 0 {
-			p = 0
+	return lines
+}
+
+func (m model) renderProjectScene(t theme) []string {
+	title := lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render(m.project.title)
+	art := m.projectASCII
+	maxW := max(20, m.width-8)
+	maxH := max(6, (m.height*55)/100)
+	art = fitASCIIToBox(art, maxW, maxH)
+
+	artStyled := make([]string, 0, len(art))
+	artStyle := lipgloss.NewStyle().Foreground(t.accent)
+	for _, l := range art {
+		artStyled = append(artStyled, artStyle.Render(l))
+	}
+
+	descStyle := lipgloss.NewStyle().Foreground(t.primary)
+	out := []string{centerStyled(title, m.width), ""}
+	for _, l := range artStyled {
+		out = append(out, centerStyled(l, m.width))
+	}
+	out = append(out, "")
+	for _, d := range m.project.description {
+		out = append(out, centerStyled(descStyle.Render(d), m.width))
+	}
+	return out
+}
+
+func (m model) renderContactScene(t theme) []string {
+	title := lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render("Contact")
+	iconStyle := lipgloss.NewStyle().Foreground(t.accent)
+	icon := []string{
+		iconStyle.Render("   .---------."),
+		iconStyle.Render(`  /  CONTACT  \`),
+		iconStyle.Render(" '-----------'"),
+	}
+	detailStyle := lipgloss.NewStyle().Foreground(t.primary)
+
+	out := []string{centerStyled(title, m.width), ""}
+	for _, l := range icon {
+		out = append(out, centerStyled(l, m.width))
+	}
+	out = append(out, "")
+	for _, c := range m.contact {
+		out = append(out, centerStyled(detailStyle.Render(c), m.width))
+	}
+	return out
+}
+
+func (m model) renderPortrait(t theme) []string {
+	visible := min(m.revealLines, len(m.portraitFitted))
+	if visible < 0 {
+		visible = 0
+	}
+	art := m.portraitFitted[:visible]
+
+	base := lipgloss.NewStyle().Foreground(t.accent)
+	bright := lipgloss.NewStyle().Foreground(t.highlight).Bold(true)
+
+	out := make([]string, 0, len(art))
+	for y, line := range art {
+		if !m.revealDone {
+			out = append(out, base.Render(line))
+			continue
 		}
-		if p > 1 {
-			p = 1
-		}
-		cx := m.width / 2
-		cy := m.height / 2
-		glyphs := []rune{'*', '+', '·', 'x'}
-		radius := 2 + int((1-p)*10)
-		for i := 0; i < 24; i++ {
-			a := float64(i)*0.52 + float64(m.uiPhase)/5
-			x := cx + int(math.Cos(a)*float64(radius))
-			y := cy + int(math.Sin(a)*float64(radius)/2)
-			if x < 1 || x > m.width || y < 1 || y > m.height {
+
+		var b strings.Builder
+		for x, ch := range []rune(line) {
+			if ch == ' ' {
+				b.WriteRune(ch)
 				continue
 			}
-			builder.WriteString(cursorAt(x, y))
-			builder.WriteString(highlightStyle.Render(string(glyphs[i%len(glyphs)])))
+			dx := x - m.shimmerX
+			if m.shimmerActive && dx >= -1 && dx <= 1 && pseudoRand(x, y, m.shimmerPhase)%3 == 0 {
+				b.WriteString(bright.Render(string(ch)))
+				continue
+			}
+			b.WriteString(base.Render(string(ch)))
+		}
+		out = append(out, b.String())
+	}
+	return out
+}
+
+func (m model) renderIntroText(t theme) []string {
+	visible := ""
+	if m.introVisible > 0 {
+		visible = string(m.introRunes[:min(m.introVisible, len(m.introRunes))])
+	}
+	lines := strings.Split(visible, "\n")
+	style := lipgloss.NewStyle().Foreground(t.primary)
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, style.Render(l))
+	}
+	return out
+}
+
+func (m model) renderNav(t theme) string {
+	left := lipgloss.NewStyle().Foreground(t.accent).Render("◄")
+	right := lipgloss.NewStyle().Foreground(t.accent).Render("►")
+	project := lipgloss.NewStyle().Foreground(t.primary).Render("Project")
+	contact := lipgloss.NewStyle().Foreground(t.primary).Render("Contact")
+	if m.selected == navProject {
+		project = lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render("Project")
+	} else {
+		contact = lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render("Contact")
+	}
+	line := left + " " + project + " " + contact + " " + right
+	return centerStyled(line, m.width)
+}
+
+func buildFrame(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, width, height int) string {
+	var b strings.Builder
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			key := y*width + x
+			ch := string(lines[y][x])
+			if c, ok := colorMap[key]; ok {
+				style := lipgloss.NewStyle().Foreground(c).Bold(boldMap[key])
+				b.WriteString(style.Render(ch))
+			} else {
+				b.WriteString(ch)
+			}
+		}
+		if y < height-1 {
+			b.WriteRune('\n')
 		}
 	}
+	return b.String()
+}
 
-	builder.WriteString(cursorAt(1, m.height))
-	builder.WriteString("\x1b[0m")
-	return builder.String()
+func wipeStyled(from, to string, cut int, reverse bool) string {
+	rFrom := []rune(stripANSI(from))
+	rTo := []rune(stripANSI(to))
+	w := max(len(rFrom), len(rTo))
+	rFrom = padRunes(rFrom, w)
+	rTo = padRunes(rTo, w)
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > w {
+		cut = w
+	}
+	out := make([]rune, w)
+	if !reverse {
+		copy(out[:cut], rTo[:cut])
+		copy(out[cut:], rFrom[cut:])
+	} else {
+		split := w - cut
+		copy(out[:split], rFrom[:split])
+		copy(out[split:], rTo[split:])
+	}
+	return string(out)
+}
+
+func linesWidth(lines []string) int {
+	w := 0
+	for _, l := range lines {
+		lw := len([]rune(stripANSI(l)))
+		if lw > w {
+			w = lw
+		}
+	}
+	return w
+}
+
+func padLines(lines []string, width, height int) []string {
+	out := make([]string, height)
+	for i := 0; i < height; i++ {
+		if i >= len(lines) {
+			out[i] = strings.Repeat(" ", width)
+			continue
+		}
+		r := []rune(stripANSI(lines[i]))
+		if len(r) > width {
+			r = r[:width]
+		}
+		if len(r) < width {
+			r = append(r, []rune(strings.Repeat(" ", width-len(r)))...)
+		}
+		out[i] = string(r)
+	}
+	return out
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inEsc {
+			if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+				inEsc = false
+			}
+			continue
+		}
+		if ch == 0x1b {
+			inEsc = true
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
+func centerStyled(s string, width int) string {
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, s)
+}
+
+func padRunes(in []rune, width int) []rune {
+	if len(in) >= width {
+		return in
+	}
+	out := make([]rune, width)
+	copy(out, in)
+	for i := len(in); i < width; i++ {
+		out[i] = ' '
+	}
+	return out
+}
+
+func (m model) maxPortraitWidth() int {
+	w := 0
+	for _, line := range m.portraitFitted {
+		lw := len([]rune(line))
+		if lw > w {
+			w = lw
+		}
+	}
+	return w
 }
 
 func (m model) activeTheme() theme {
@@ -978,42 +910,12 @@ func (m model) activeTheme() theme {
 	return m.themes[m.themeIndex]
 }
 
-func (m model) matrixTheme() theme {
-	return theme{
-		name:           "Matrix",
-		primary:        "#7DFFB3",
-		accent:         "#39FF14",
-		highlight:      "#B3FFD9",
-		particle:       "#76FF03",
-		scanline:       "#0E4D20",
-		enableScanline: true,
+func pseudoRand(x, y, phase int) int {
+	v := x*73 + y*131 + phase*29 + 97
+	if v < 0 {
+		v = -v
 	}
-}
-
-func themePalette(t theme) []lipgloss.Color {
-	return []lipgloss.Color{t.primary, t.accent, t.highlight, t.particle}
-}
-
-func rainbowText(text string, palette []lipgloss.Color, phase int, bold bool) string {
-	if len(palette) == 0 || text == "" {
-		return text
-	}
-	r := []rune(text)
-	var b strings.Builder
-	for i, ch := range r {
-		if ch == ' ' {
-			b.WriteRune(ch)
-			continue
-		}
-		color := palette[(i+phase)%len(palette)]
-		style := lipgloss.NewStyle().Foreground(color).Bold(bold)
-		b.WriteString(style.Render(string(ch)))
-	}
-	return b.String()
-}
-
-func cursorAt(x, y int) string {
-	return fmt.Sprintf("\x1b[%d;%dH", y, x)
+	return v
 }
 
 func min(a, b int) int {
