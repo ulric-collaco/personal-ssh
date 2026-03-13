@@ -1,0 +1,12 @@
+        __________________________
+       /   CHATRTX CLONE :: AI   \
+      /----------------------------\
+     |  > ask("summarize notes")    |
+     |  > retrieve(context chunks)  |
+     |  > generate(local response)  |
+     |                              |
+     |  [GPU] [EMBED] [VECTOR DB]   |
+      \____________________________/
+               ||          ||
+             __||__________||__
+            /__________________\
