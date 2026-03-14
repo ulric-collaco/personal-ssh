@@ -132,8 +132,21 @@ func newModel() model {
 	projectASCII := loadASCII(project.assetPath, []string{"(project art missing)"})
 
 	introLines := []string{
-		"ULRIC",
-		"COLLACO",
+		"     :::    ::: :::        :::::::::  ::::::::::: :::::::: ",
+		"    :+:    :+: :+:        :+:    :+:     :+:    :+:    :+:",
+		"   +:+    +:+ +:+        +:+    +:+     +:+    +:+",
+		"  +#+    +:+ +#+        +#++:++#:      +#+    +#+",
+		" +#+    +#+ +#+        +#+    +#+     +#+    +#+",
+		"#+#    #+# #+#        #+#    #+#     #+#    #+#    #+#",
+		"########  ########## ###    ### ########### ########",
+		"",
+		"      ::::::::   ::::::::  :::        :::            :::      ::::::::   ::::::::",
+		"    :+:    :+: :+:    :+: :+:        :+:          :+: :+:   :+:    :+: :+:    :+:",
+		"   +:+        +:+    +:+ +:+        +:+         +:+   +:+  +:+        +:+    +:+",
+		"  +#+        +#+    +:+ +#+        +#+        +#++:++#++: +#+        +#+    +:+",
+		" +#+        +#+    +#+ +#+        +#+        +#+     +#+ +#+        +#+    +#+",
+		"#+#    #+# #+#    #+# #+#        #+#        #+#     #+# #+#    #+# #+#    #+#",
+		"########   ########  ########## ########## ###     ###  ########   ########",
 	}
 	introJoined := strings.Join(introLines, "\n")
 
@@ -356,8 +369,8 @@ func (m *model) refreshLayout() {
 
 	contentTop := max(2, m.height/10)
 	contentBottom := m.height - 4
-	maxH := max(6, (contentBottom-contentTop)*70/100)
-	maxW := max(20, m.width*42/100)
+	maxH := max(6, (contentBottom-contentTop)*60/100)
+	maxW := max(18, m.width*34/100)
 	fitted := fitASCIIToBox(m.portraitOriginal, maxW, maxH)
 	m.portraitFitted = fitted
 	if m.revealDone {
