@@ -103,11 +103,30 @@ type model struct {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	program := tea.NewProgram(newModel(), tea.WithAltScreen())
-	if _, err := program.Run(); err != nil {
-		fmt.Println("error running program:", err)
-		os.Exit(1)
+	
+	// Check if running in SSH (no proper terminal)
+	if os.Getenv("SSH_CONNECTION") != "" || !isatty() {
+		// Run without alt screen for SSH compatibility
+		program := tea.NewProgram(newModel())
+		if _, err := program.Run(); err != nil {
+			fmt.Println("error running program:", err)
+			os.Exit(1)
+		}
+	} else {
+		// Normal mode with alt screen
+		program := tea.NewProgram(newModel(), tea.WithAltScreen())
+		if _, err := program.Run(); err != nil {
+			fmt.Println("error running program:", err)
+			os.Exit(1)
+		}
 	}
+}
+
+func isatty() bool {
+	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
+		return true
+	}
+	return false
 }
 
 func newModel() model {
