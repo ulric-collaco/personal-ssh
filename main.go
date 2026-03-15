@@ -103,13 +103,19 @@ type model struct {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	program := tea.NewProgram(newModel())  // Removed tea.WithAltScreen()
+	
+	// Force bubbletea to use stdin/stdout instead of /dev/tty
+	program := tea.NewProgram(
+		newModel(),
+		tea.WithInput(os.Stdin),
+		tea.WithOutput(os.Stdout),
+	)
+	
 	if _, err := program.Run(); err != nil {
 		fmt.Println("error running program:", err)
 		os.Exit(1)
 	}
 }
-
 
 
 func newModel() model {
