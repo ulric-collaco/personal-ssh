@@ -29,13 +29,6 @@ const (
 	sceneContact
 )
 
-type navItem int
-
-const (
-	navProject navItem = iota
-	navContact
-)
-
 type star struct {
 	x          int
 	y          int
@@ -56,7 +49,7 @@ type transition struct {
 
 type projectInfo struct {
 	title       string
-	assetPath   string
+	asciiArt    []string
 	description []string
 }
 
@@ -69,8 +62,8 @@ type (
 )
 
 const (
-	typeTickInterval  = 30 * time.Millisecond
-	startupTotalTicks = 70 // ~2.1s for full intro typing
+	typeTickInterval  = 15 * time.Millisecond // Faster typing
+	startupTotalTicks = 40                    // Faster total startup animation
 )
 
 type model struct {
@@ -80,8 +73,7 @@ type model struct {
 	themes     []theme
 	themeIndex int
 
-	scene    sceneMode
-	selected navItem
+	scene sceneMode
 
 	transition transition
 
@@ -104,10 +96,9 @@ type model struct {
 	startupTicks int
 	aboutLines   []string
 
-	project projectInfo
-	contact []string
-
-	projectASCII []string
+	projects    []projectInfo
+	contact     []string
+	contactHead []string
 }
 
 func main() {
@@ -121,15 +112,58 @@ func main() {
 
 func newModel() model {
 	portrait := loadASCII("assets/me_ascii.txt", []string{"(portrait missing: assets/me_ascii.txt)"})
-	project := projectInfo{
-		title:     "Gyro Controlled Car",
-		assetPath: "assets/projects/gyro_car.txt",
-		description: []string{
-			"A gyro-stabilized RC platform with responsive steering.",
-			"Embedded control loops tuned for smooth motion.",
+
+	// "PASTRY" in Alligator/Doom style
+	pastryArt := []string{
+		`:::::::::      :::      ::::::::  ::::::::::: :::::::::  :::   ::: `,
+		`:+:    :+:   :+: :+:   :+:    :+:     :+:     :+:    :+: :+:   :+: `,
+		`+:+    +:+  +:+   +:+  +:+            +:+     +:+    +:+  +:+ +:+  `,
+		`+#++:++#+  +#++:++#++: +#++:++#++     +#+     +#++:++#:    +#++:   `,
+		`+#+        +#+     +#+        +#+     +#+     +#+    +#+    +#+    `,
+		`#+#        #+#     #+# #+#    #+#     #+#     #+#    #+#    #+#    `,
+		`###        ###     ###  ########      ###     ###    ###    ###    `,
+	}
+
+	// "GYRO CAR" in Alligator/Doom style
+	gyroArt := []string{
+		`  ::::::::  :::   ::: :::::::::   ::::::::        ::::::::      :::     ::::::::: `,
+		` :+:    :+: :+:   :+: :+:    :+: :+:    :+:      :+:    :+:   :+: :+:   :+:    :+:`,
+		`+:+         +:+   +:+ +:+    +:+ +:+    +:+      +:+         +:+   +:+  +:+    +:+`,
+		`:#:          +#++:++  +#++:++#:  +#+    +:+      +#+        +#++:++#++: +#++:++#: `,
+		`+#+   +#+#    +#+     +#+    +#+ +#+    +#+      +#+        +#+     +#+ +#+    +#+`,
+		`#+#    #+#    #+#     #+#    #+# #+#    #+#      #+#    #+# #+#     #+# #+#    #+#`,
+		` ########     ###     ###    ###  ########        ########  ###     ### ###    ###`,
+	}
+
+	// "CONTACT" in Alligator/Doom style - Cleaner version
+	contactArt := []string{
+		` ::::::::  ::::::::  ::::    ::: :::::::::::     :::     :::::::: :::::::::::`,
+		`:+:    :+: :+:    :+: :+:+:   :+:     :+:       :+: :+:  :+:    :+:    :+:    `,
+		`+:+        +:+    +:+ :+:+:+  +:+     +:+      +:+   +:+ +:+           +:+    `,
+		`+#+        +#+    +:+ +#+ +:+ +#+     +#+     +#++:++#++ :+#+          +#+    `,
+		`+#+        +#+    +#+ +#+  +#+#+#     +#+     +#+     +#+ +#+   +#+#    +#+   `,
+		`#+#    #+# #+#    #+# #+#   #+#+#     #+#     #+#     #+# #+#    #+#    #+#   `,
+		` ########   ::::::::  ###    ####     ###     ###     ###  ########     ###   `,
+	}
+
+	projects := []projectInfo{
+		{
+			title:    "Pastry",
+			asciiArt: pastryArt,
+			description: []string{
+				"A PASTEBIN / RENTRY CLONE.",
+				"SIMPLE, FAST, AND CONTENT-FOCUSED.",
+			},
+		},
+		{
+			title:    "Gyro Car",
+			asciiArt: gyroArt,
+			description: []string{
+				"ESP32 BASED CAR CONTROLLED VIA GYRO.",
+				"CUSTOM MOBILE APP FOR GESTURE CONTROL.",
+			},
 		},
 	}
-	projectASCII := loadASCII(project.assetPath, []string{"(project art missing)"})
 
 	introLines := []string{
 		"     :::    ::: :::        :::::::::  ::::::::::: :::::::: ",
@@ -159,7 +193,6 @@ func newModel() model {
 		},
 		themeIndex:       1,
 		scene:            sceneHome,
-		selected:         navProject,
 		portraitOriginal: portrait,
 		portraitFitted:   portrait,
 		revealLines:      0,
@@ -180,12 +213,13 @@ func newModel() model {
 			"Currently grinding hard for internships.",
 			"Always building. Always learning. Always shipping.",
 		},
-		project:      project,
-		projectASCII: projectASCII,
+		projects:    projects,
+		contactHead: contactArt,
 		contact: []string{
-			"GitHub: github.com/ulric",
-			"Email: ulric@example.com",
-			"LinkedIn: linkedin.com/in/ulric",
+			"GitHub:    https://github.com/ulric-collaco",
+			"Email:     collacou@gmail.com",
+			"LinkedIn:  https://www.linkedin.com/in/ulric-collaco/",
+			"Instagram: https://www.instagram.com/ulric_collaco/",
 		},
 	}
 
@@ -253,10 +287,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.transition.active {
 				return m, nil
 			}
-			m.selected = navItem((int(m.selected) - 1 + 2) % 2)
-			to := sceneProject
-			if m.selected == navContact {
+			to := m.scene
+			switch m.scene {
+			case sceneHome:
 				to = sceneContact
+			case sceneProject:
+				to = sceneHome
+			case sceneContact:
+				to = sceneProject
 			}
 			if to != m.scene {
 				m.startTransition(to, -1)
@@ -267,31 +305,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.transition.active {
 				return m, nil
 			}
-			m.selected = navItem((int(m.selected) + 1) % 2)
-			to := sceneProject
-			if m.selected == navContact {
+			to := m.scene
+			switch m.scene {
+			case sceneHome:
+				to = sceneProject
+			case sceneProject:
 				to = sceneContact
+			case sceneContact:
+				to = sceneHome
 			}
 			if to != m.scene {
 				m.startTransition(to, 1)
-				return m, transitionTick()
-			}
-			return m, nil
-		case "enter":
-			if m.scene == sceneHome && !m.transition.active {
-				to := sceneProject
-				dir := 1
-				if m.selected == navContact {
-					to = sceneContact
-					dir = -1
-				}
-				m.startTransition(to, dir)
-				return m, transitionTick()
-			}
-			return m, nil
-		case "esc", "backspace":
-			if m.scene != sceneHome && !m.transition.active {
-				m.startTransition(sceneHome, -1)
 				return m, transitionTick()
 			}
 			return m, nil
@@ -518,14 +542,46 @@ func (m model) View() string {
 	} else {
 		page = m.renderScene(t, m.scene)
 	}
+
 	pageTop := max(1, (m.height-len(page))/2)
 	for i, raw := range page {
 		y := pageTop + i
 		if y < 0 || y >= m.height {
 			continue
 		}
+
+		// Use t.primary as default, but try to respect existing ANSI if possible?
+		// Given we don't have a full parser, let's revert to a simpler stable rendering:
+		// 1. Strip ANSI for layout.
+		// 2. Use a heuristic that is STABLE (checking first few chars? checking length?)
+		// 3. BUT the user specifically wants the portrait to be ONE color (t.accent/t.primary).
+		// Currently it's mixed because my previous heuristic was per-line.
+		
 		plain := stripANSI(raw)
-		m.blitCenteredLine(lines, colorMap, boldMap, plain, y, t.primary, false)
+		
+		// Improved Heuristic:
+		// If it's a link, highlight it.
+		// If it's ASCII art (Project Title, Contact Art, Portrait), accent/highlight it.
+		// If it's normal text, primary.
+		
+		lineColor := t.primary
+		isBold := false
+		
+		if strings.Contains(plain, "http") || strings.Contains(plain, "www.") || strings.Contains(plain, "@") {
+			lineColor = t.highlight
+			isBold = true 
+		} else if isAsciiArtLine(plain) {
+			lineColor = t.accent
+		}
+		
+		// Specific override for "About Me" headers or known text logic? 
+		// "ABOUT ME" is all caps, short. 
+		if plain == "ABOUT ME" {
+			lineColor = t.highlight
+			isBold = true
+		}
+
+		m.blitCenteredLine(lines, colorMap, boldMap, plain, y, lineColor, isBold)
 	}
 
 	nav := m.renderNav(t)
@@ -537,31 +593,44 @@ func (m model) View() string {
 	return buildFrame(lines, colorMap, boldMap, m.width, m.height)
 }
 
-func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
-	r := []rune(text)
-	if len(r) == 0 || y < 0 || y >= m.height {
-		return
-	}
-	x0 := (m.width - len(r)) / 2
-	if x0 < 0 {
-		x0 = 0
-	}
-	for i, ch := range r {
-		x := x0 + i
-		if x < 0 || x >= m.width {
-			continue
+func isAsciiArtLine(s string) bool {
+	// A line is likely ASCII art if it has extensive use of specific chars
+	// and low use of normal alphabet.
+	// But "Project Title" has alphabet.
+	// Let's check for density of art chars.
+	artChars := ":+*#_/-|\\."
+	count := 0
+	for _, r := range s {
+		if strings.ContainsRune(artChars, r) {
+			count++
 		}
-		lines[y][x] = ch
-		key := y*m.width + x
-		if ch == ' ' {
-			delete(colorMap, key)
-			delete(boldMap, key)
-			continue
-		}
-		colorMap[key] = color
-		boldMap[key] = bold
 	}
+	// If more than 30% or just strictly > 3 chars? 
+	// The portrait has lines with just "   :::   " -> 3+ chars.
+	// Normal text "I build things" -> 0 art chars.
+	return count >= 3
 }
+
+	func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
+		r := []rune(text)
+		if len(r) == 0 || y < 0 || y >= m.height {
+			return
+		}
+		x0 := (m.width - len(r)) / 2
+		if x0 < 0 {
+			x0 = 0
+		}
+		for i, ch := range r {
+			x := x0 + i
+			if x < 0 || x >= m.width {
+				continue
+			}
+			lines[y][x] = ch
+			key := y*m.width + x
+			colorMap[key] = color
+			boldMap[key] = bold
+		}
+	}
 
 func (m model) paintStars(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, t theme) {
 	palette := []lipgloss.Color{t.scanline, t.particle, t.accent}
@@ -699,48 +768,144 @@ func (m model) renderHomeScene(t theme) []string {
 }
 
 func (m model) renderProjectScene(t theme) []string {
-	title := lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render(m.project.title)
-	art := m.projectASCII
-	maxW := max(20, m.width-8)
-	maxH := max(6, (m.height*55)/100)
-	art = fitASCIIToBox(art, maxW, maxH)
+	p1 := m.renderProjectBlock(t, m.projects[0])
+	p2 := m.renderProjectBlock(t, m.projects[1])
 
-	artStyled := make([]string, 0, len(art))
-	artStyle := lipgloss.NewStyle().Foreground(t.accent)
-	for _, l := range art {
-		artStyled = append(artStyled, artStyle.Render(l))
+	w1 := m.blockWidth(p1)
+	w2 := m.blockWidth(p2)
+	gap := 8 // Increased gap
+	totalW := w1 + gap + w2
+
+	var combined []string
+	if totalW <= m.width {
+		h := max(len(p1), len(p2))
+		combined = make([]string, h)
+		// Calculate simple centering
+		startX := (m.width - totalW) / 2
+		if startX < 0 {
+			startX = 0
+		}
+		leftPad := strings.Repeat(" ", startX)
+
+		// Separator line
+		sepStyle := lipgloss.NewStyle().Foreground(t.scanline)
+
+		// Adjust gap for separator
+		// Layout: [LeftPad][P1][Gap/2][Sep][Gap/2][P2]
+		// Actually let's just use gap spaces and put sep in middle?
+		// Gap is 8. P1 ... 3 spaces ... SEP ... 3 spaces ... P2
+		// Total gap width logic: 3 + 3 + 3 = 9? No.
+		// Let's do: P1 + "   │    " + P2.
+		// Gap string:
+		gapStr := sepStyle.Render("   │    ") // 3 spaces, bar, 4 spaces?
+		// Or just centered bar.
+
+		for i := 0; i < h; i++ {
+			line1 := ""
+			if i < len(p1) {
+				line1 = p1[i]
+			}
+			line2 := ""
+			if i < len(p2) {
+				line2 = p2[i]
+			}
+			// Pad line1 to w1, preserving ANSI
+			l1W := len([]rune(stripANSI(line1)))
+			if l1W < w1 {
+				line1 += strings.Repeat(" ", w1-l1W)
+			}
+			combined[i] = leftPad + line1 + gapStr + line2
+		}
+	} else {
+		// Stacked
+		combined = append(combined, p1...)
+		combined = append(combined, "") // spacer
+		combined = append(combined, "") // spacer
+		// Horizontal separator
+		sepLine := strings.Repeat("─", min(40, m.width-4))
+		combined = append(combined, centerStyled(lipgloss.NewStyle().Foreground(t.scanline).Render(sepLine), m.width))
+		combined = append(combined, "")
+		combined = append(combined, "")
+		combined = append(combined, p2...)
+		// Center horizontally
+		for i := range combined {
+			combined[i] = centerStyled(combined[i], m.width)
+		}
 	}
 
-	descStyle := lipgloss.NewStyle().Foreground(t.primary)
-	out := []string{centerStyled(title, m.width), ""}
-	for _, l := range artStyled {
-		out = append(out, centerStyled(l, m.width))
+	// Footer: "for more projects visit" + ASCII URL
+	footerText := "FOR MORE PROJECTS VISIT:"
+	footerStyle := lipgloss.NewStyle().Foreground(t.primary).Bold(true)
+
+	// Regular big font - Styled
+	siteLink := "https://ulriccollaco.me"
+	siteStyle := lipgloss.NewStyle().
+		Foreground(t.highlight).
+		Background(t.scanline).
+		Bold(true).
+		Padding(0, 2).
+		MarginTop(1)
+
+	renderedLink := siteStyle.Render(siteLink)
+
+	combined = append(combined, "", "", centerStyled(footerStyle.Render(footerText), m.width))
+	combined = append(combined, centerStyled(renderedLink, m.width))
+	return combined
+}
+
+func (m model) blockWidth(lines []string) int {
+	w := 0
+	for _, l := range lines {
+		lw := len([]rune(stripANSI(l)))
+		if lw > w {
+			w = lw
+		}
+	}
+	return w
+}
+
+func (m model) renderProjectBlock(t theme, p projectInfo) []string {
+	artStyle := lipgloss.NewStyle().Foreground(t.accent)
+	descStyle := lipgloss.NewStyle().Foreground(t.primary).Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(t.scanline).Padding(0, 1)
+
+	out := make([]string, 0, len(p.asciiArt)+len(p.description)+3)
+	for _, l := range p.asciiArt {
+		out = append(out, artStyle.Render(l))
 	}
 	out = append(out, "")
-	for _, d := range m.project.description {
-		out = append(out, centerStyled(descStyle.Render(d), m.width))
+
+	// Render description as a block
+	descText := strings.Join(p.description, "\n")
+	descRendered := descStyle.Render(descText)
+	descLines := strings.Split(descRendered, "\n")
+	out = append(out, descLines...)
+
+	// Center content within the block's own width
+	currW := m.blockWidth(out)
+	for i := range out {
+		out[i] = lipgloss.PlaceHorizontal(currW, lipgloss.Center, out[i])
 	}
 	return out
 }
 
 func (m model) renderContactScene(t theme) []string {
-	title := lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render("Contact")
-	iconStyle := lipgloss.NewStyle().Foreground(t.accent)
-	icon := []string{
-		iconStyle.Render("   .---------."),
-		iconStyle.Render(`  /  CONTACT  \`),
-		iconStyle.Render(" '-----------'"),
-	}
+	artStyle := lipgloss.NewStyle().Foreground(t.accent)
 	detailStyle := lipgloss.NewStyle().Foreground(t.primary)
 
-	out := []string{centerStyled(title, m.width), ""}
-	for _, l := range icon {
-		out = append(out, centerStyled(l, m.width))
+	var art []string
+	for _, l := range m.contactHead {
+		art = append(art, artStyle.Render(l))
 	}
-	out = append(out, "")
+
+	out := append(art, "", "")
 	for _, c := range m.contact {
 		out = append(out, centerStyled(detailStyle.Render(c), m.width))
 	}
+
+	for i := range out {
+		out[i] = centerStyled(out[i], m.width)
+	}
+
 	return out
 }
 
@@ -794,16 +959,45 @@ func (m model) renderIntroText(t theme) []string {
 }
 
 func (m model) renderNav(t theme) string {
-	left := lipgloss.NewStyle().Foreground(t.accent).Render("◄")
-	right := lipgloss.NewStyle().Foreground(t.accent).Render("►")
-	project := lipgloss.NewStyle().Foreground(t.primary).Render("Project")
-	contact := lipgloss.NewStyle().Foreground(t.primary).Render("Contact")
-	if m.selected == navProject {
-		project = lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render("Project")
-	} else {
-		contact = lipgloss.NewStyle().Foreground(t.highlight).Bold(true).Render("Contact")
+	leftArrow := lipgloss.NewStyle().Foreground(t.accent).Render("◄")
+	rightArrow := lipgloss.NewStyle().Foreground(t.accent).Render("►")
+
+	var leftLabel, currentLabel, rightLabel string
+
+	// Navigation map based on left/right logic
+	// Logic:
+	// Home: Left->Contact, Right->Projects
+	// Projects: Left->Home, Right->Contact
+	// Contact: Left->Projects, Right->Home
+
+	switch m.scene {
+	case sceneHome:
+		leftLabel = "Contact"
+		currentLabel = "HOME"
+		rightLabel = "Projects"
+	case sceneProject:
+		leftLabel = "Home"
+		currentLabel = "PROJECTS"
+		rightLabel = "Contact"
+	case sceneContact:
+		leftLabel = "Projects"
+		currentLabel = "CONTACT"
+		rightLabel = "Home"
 	}
-	line := left + " " + project + " " + contact + " " + right
+
+	leftStyle := lipgloss.NewStyle().Foreground(t.primary).Faint(true)
+	currStyle := lipgloss.NewStyle().Foreground(t.highlight).Bold(true)
+	rightStyle := lipgloss.NewStyle().Foreground(t.primary).Faint(true)
+
+	// Format:  Contact ◄ HOME ► Projects
+	line := fmt.Sprintf("%s %s %s %s %s",
+		leftStyle.Render(leftLabel),
+		leftArrow,
+		currStyle.Render(currentLabel),
+		rightArrow,
+		rightStyle.Render(rightLabel),
+	)
+
 	return centerStyled(line, m.width)
 }
 
