@@ -110,12 +110,7 @@ func main() {
 	}
 }
 
-func isatty() bool {
-	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
-		return true
-	}
-	return false
-}
+
 
 func newModel() model {
 	portrait := loadASCII("assets/me_ascii.txt", []string{"(portrait missing: assets/me_ascii.txt)"})
