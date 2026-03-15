@@ -556,26 +556,26 @@ func (m model) View() string {
 		// 2. Use a heuristic that is STABLE (checking first few chars? checking length?)
 		// 3. BUT the user specifically wants the portrait to be ONE color (t.accent/t.primary).
 		// Currently it's mixed because my previous heuristic was per-line.
-		
+
 		plain := stripANSI(raw)
-		
+
 		// Improved Heuristic:
 		// If it's a link, highlight it.
 		// If it's ASCII art (Project Title, Contact Art, Portrait), accent/highlight it.
 		// If it's normal text, primary.
-		
+
 		lineColor := t.primary
 		isBold := false
-		
+
 		if strings.Contains(plain, "http") || strings.Contains(plain, "www.") || strings.Contains(plain, "@") {
 			lineColor = t.highlight
-			isBold = true 
+			isBold = true
 		} else if isAsciiArtLine(plain) {
 			lineColor = t.accent
 		}
-		
-		// Specific override for "About Me" headers or known text logic? 
-		// "ABOUT ME" is all caps, short. 
+
+		// Specific override for "About Me" headers or known text logic?
+		// "ABOUT ME" is all caps, short.
 		if plain == "ABOUT ME" {
 			lineColor = t.highlight
 			isBold = true
@@ -605,32 +605,32 @@ func isAsciiArtLine(s string) bool {
 			count++
 		}
 	}
-	// If more than 30% or just strictly > 3 chars? 
+	// If more than 30% or just strictly > 3 chars?
 	// The portrait has lines with just "   :::   " -> 3+ chars.
 	// Normal text "I build things" -> 0 art chars.
 	return count >= 3
 }
 
-	func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
-		r := []rune(text)
-		if len(r) == 0 || y < 0 || y >= m.height {
-			return
-		}
-		x0 := (m.width - len(r)) / 2
-		if x0 < 0 {
-			x0 = 0
-		}
-		for i, ch := range r {
-			x := x0 + i
-			if x < 0 || x >= m.width {
-				continue
-			}
-			lines[y][x] = ch
-			key := y*m.width + x
-			colorMap[key] = color
-			boldMap[key] = bold
-		}
+func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
+	r := []rune(text)
+	if len(r) == 0 || y < 0 || y >= m.height {
+		return
 	}
+	x0 := (m.width - len(r)) / 2
+	if x0 < 0 {
+		x0 = 0
+	}
+	for i, ch := range r {
+		x := x0 + i
+		if x < 0 || x >= m.width {
+			continue
+		}
+		lines[y][x] = ch
+		key := y*m.width + x
+		colorMap[key] = color
+		boldMap[key] = bold
+	}
+}
 
 func (m model) paintStars(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, t theme) {
 	palette := []lipgloss.Color{t.scanline, t.particle, t.accent}
