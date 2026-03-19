@@ -164,9 +164,9 @@ func newModel() model {
 
 	m := model{
 		themes: []theme{
-			{name: "Cyber Green", primary: "#A4FFB0", accent: "#43FF75", highlight: "#D8FFE0", particle: "#4EFF78", scanline: "#1B5E20", enableScanline: true},
-			{name: "Ocean Blue", primary: "#79D7FF", accent: "#4EA8FF", highlight: "#A8FFEC", particle: "#6EC5FF", scanline: "#0D3C66", enableScanline: true},
-			{name: "Amber Retro", primary: "#FFDCA3", accent: "#FF9F1C", highlight: "#FFF0A3", particle: "#FF6A3D", scanline: "#5A3D00", enableScanline: true},
+			{name: "Cyber Green", primary: "#A4FFB0", accent: "#A4FFB0", highlight: "#43FF75", particle: "#4EFF78", scanline: "#1B5E20", enableScanline: true},
+			{name: "Ocean Blue", primary: "#79D7FF", accent: "#79D7FF", highlight: "#4EA8FF", particle: "#6EC5FF", scanline: "#0D3C66", enableScanline: true},
+			{name: "Amber Retro", primary: "#FFDCA3", accent: "#FFDCA3", highlight: "#FF9F1C", particle: "#FF6A3D", scanline: "#5A3D00", enableScanline: true},
 		},
 		themeIndex:       0,
 		scene:            sceneHome,
@@ -177,14 +177,9 @@ func newModel() model {
 		shimmerWait:      20,
 		introLines:       introLines,
 		aboutLines: []string{
-			"ABOUT ME",
-			"I build fast, break limits, and ship clean.",
-			"Web x Cybersecurity is my home turf.",
-			"I made a Pastebin/Rentry-style clone.",
-			"I built a gyro car and my own control app.",
-			"I turn rough ideas into working systems.",
-			"Currently grinding hard for internships.",
-			"Always building. Always learning. Always shipping.",
+			"Student at Fr. Conceicao Rodrigues College of Engineering",
+			"Frontend Engineer | UI/UX Designer",
+			"Building web apps and exploring cybersecurity",
 		},
 		projects:    projects,
 		contactHead: contactArt,
@@ -284,10 +279,10 @@ func (m *model) refreshLayout() {
 		return
 	}
 
-	// Portrait sizing - responsive to terminal size
-	maxH := max(10, m.height*40/100)
-	maxW := max(30, min(50, m.width*30/100))
-	
+	// Portrait sizing - target 110x40, clamp to terminal
+	maxW := min(110, m.width)
+	maxH := min(40, m.height)
+
 	m.portraitFitted = fitASCIIToBox(m.portraitOriginal, maxW, maxH)
 }
 
@@ -330,7 +325,7 @@ func (m *model) reseedStars() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	target := min(100, (m.width*m.height)/25) // Reduced for performance
+	target := min(100, (m.width*m.height)/25)
 	m.stars = make([]star, 0, target)
 	glyphs := []rune{'.', '*', '·', '+'}
 	for i := 0; i < target; i++ {
@@ -412,25 +407,19 @@ func (m model) View() string {
 	// Render content
 	page := m.renderScene(t)
 	pageTop := max(1, (m.height-len(page))/2)
-	
+
 	for i, line := range page {
 		y := pageTop + i
 		if y < 0 || y >= m.height {
 			continue
 		}
-		
+
 		plain := stripANSI(line)
 		lineColor := t.primary
 		isBold := false
 
+		// Highlight links
 		if strings.Contains(plain, "http") || strings.Contains(plain, "@") {
-			lineColor = t.highlight
-			isBold = true
-		} else if isArtLine(plain) {
-			lineColor = t.accent
-		}
-
-		if plain == "ABOUT ME" {
 			lineColor = t.highlight
 			isBold = true
 		}
@@ -463,17 +452,6 @@ func (m model) View() string {
 	}
 
 	return b.String()
-}
-
-func isArtLine(s string) bool {
-	artChars := ":+*#_/-|\\.@%$="
-	count := 0
-	for _, r := range s {
-		if strings.ContainsRune(artChars, r) {
-			count++
-		}
-	}
-	return count >= 3
 }
 
 func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
@@ -551,7 +529,7 @@ func (m model) renderHomeScene(t theme) []string {
 
 	gap := 4
 	totalW := portraitW + gap + introW
-	
+
 	// If too wide, stack vertically
 	if totalW > m.width-4 {
 		var out []string
@@ -569,13 +547,13 @@ func (m model) renderHomeScene(t theme) []string {
 
 	allIntro := append(intro, "")
 	allIntro = append(allIntro, about...)
-	
+
 	blockH := max(len(portrait), len(allIntro))
 	lines := make([]string, blockH)
-	
+
 	for i := 0; i < blockH; i++ {
 		row := []rune(strings.Repeat(" ", m.width))
-		
+
 		if i < len(portrait) {
 			for j, ch := range []rune(stripANSI(portrait[i])) {
 				x := leftX + j
@@ -584,7 +562,7 @@ func (m model) renderHomeScene(t theme) []string {
 				}
 			}
 		}
-		
+
 		if i < len(allIntro) {
 			for j, ch := range []rune(allIntro[i]) {
 				x := rightX + j
@@ -593,7 +571,7 @@ func (m model) renderHomeScene(t theme) []string {
 				}
 			}
 		}
-		
+
 		lines[i] = string(row)
 	}
 
@@ -602,7 +580,7 @@ func (m model) renderHomeScene(t theme) []string {
 
 func (m model) renderProjectScene(t theme) []string {
 	var out []string
-	
+
 	for i, p := range m.projects {
 		for _, l := range p.asciiArt {
 			out = append(out, l)
@@ -611,15 +589,15 @@ func (m model) renderProjectScene(t theme) []string {
 		for _, d := range p.description {
 			out = append(out, d)
 		}
-		
+
 		if i < len(m.projects)-1 {
 			out = append(out, "", "")
 		}
 	}
-	
+
 	out = append(out, "", "", "FOR MORE PROJECTS VISIT:")
 	out = append(out, "https://ulriccollaco.me")
-	
+
 	return out
 }
 
@@ -633,9 +611,9 @@ func (m model) renderContactScene(t theme) []string {
 
 func (m model) renderPortrait(t theme) []string {
 	art := m.portraitFitted
-	baseColor := lipgloss.Color("#A4FFB0")
+	baseColor := t.primary
 	base := lipgloss.NewStyle().Foreground(baseColor)
-	bright := lipgloss.NewStyle().Foreground(baseColor).Bold(true)
+	bright := lipgloss.NewStyle().Foreground(t.highlight).Bold(true)
 
 	out := make([]string, 0, len(art))
 	for y, line := range art {
