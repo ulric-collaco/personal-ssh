@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -197,7 +198,12 @@ func newModel() model {
 func loadASCII(path string, fallback []string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fallback
+		if alt := assetPath(path); alt != path {
+			data, err = os.ReadFile(alt)
+		}
+		if err != nil {
+			return fallback
+		}
 	}
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	lines := strings.Split(text, "\n")
@@ -208,6 +214,15 @@ func loadASCII(path string, fallback []string) []string {
 		return fallback
 	}
 	return lines
+}
+
+func assetPath(rel string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return rel
+	}
+	base := filepath.Dir(exe)
+	return filepath.Join(base, rel)
 }
 
 func (m model) Init() tea.Cmd {
