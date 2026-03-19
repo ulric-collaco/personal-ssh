@@ -279,9 +279,13 @@ func (m *model) refreshLayout() {
 		return
 	}
 
-	// Portrait sizing - target 110x40, clamp to terminal
+	// Portrait sizing - target 110x40, clamp with room for nav and padding.
 	maxW := min(110, m.width)
-	maxH := min(40, m.height)
+	availableH := m.height - 4
+	if availableH < 1 {
+		availableH = 1
+	}
+	maxH := min(40, availableH)
 
 	m.portraitFitted = fitASCIIToBox(m.portraitOriginal, maxW, maxH)
 }
@@ -296,16 +300,7 @@ func fitASCIIToBox(lines []string, maxW, maxH int) []string {
 
 	rows := lines
 	if len(rows) > maxH {
-		step := float64(len(rows)) / float64(maxH)
-		tmp := make([]string, 0, maxH)
-		for i := 0; i < maxH; i++ {
-			idx := int(float64(i) * step)
-			if idx >= len(rows) {
-				idx = len(rows) - 1
-			}
-			tmp = append(tmp, rows[idx])
-		}
-		rows = tmp
+		rows = rows[:maxH]
 	}
 
 	out := make([]string, 0, len(rows))
@@ -315,8 +310,7 @@ func fitASCIIToBox(lines []string, maxW, maxH int) []string {
 			out = append(out, line)
 			continue
 		}
-		start := (len(r) - maxW) / 2
-		out = append(out, string(r[start:start+maxW]))
+		out = append(out, string(r[:maxW]))
 	}
 	return out
 }
@@ -391,6 +385,45 @@ func (m model) View() string {
 
 	t := m.activeTheme()
 	var b strings.Builder
+	minW := m.minHomeWidth()
+	minH := 24
+	if m.width < minW || m.height < minH {
+		lines := make([][]rune, m.height)
+		colorMap := make(map[int]lipgloss.Color)
+		boldMap := make(map[int]bool)
+
+		for y := 0; y < m.height; y++ {
+			lines[y] = []rune(strings.Repeat(" ", m.width))
+		}
+
+		box := renderTooSmallMessage(m.width, m.height, minW, minH)
+		boxTop := max(0, (m.height-len(box))/2)
+		for i, line := range box {
+			y := boxTop + i
+			if y < 0 || y >= m.height {
+				continue
+			}
+			m.blitCenteredLine(lines, colorMap, boldMap, line, y, t.highlight, true)
+		}
+
+		for y := 0; y < m.height; y++ {
+			for x := 0; x < m.width; x++ {
+				key := y*m.width + x
+				ch := string(lines[y][x])
+				if c, ok := colorMap[key]; ok {
+					style := lipgloss.NewStyle().Foreground(c).Bold(boldMap[key])
+					b.WriteString(style.Render(ch))
+				} else {
+					b.WriteString(ch)
+				}
+			}
+			if y < m.height-1 {
+				b.WriteRune('\n')
+			}
+		}
+
+		return b.String()
+	}
 
 	// Create canvas
 	lines := make([][]rune, m.height)
@@ -406,7 +439,17 @@ func (m model) View() string {
 
 	// Render content
 	page := m.renderScene(t)
-	pageTop := max(1, (m.height-len(page))/2)
+	pageTop := max(0, (m.height-len(page))/2)
+	if m.scene == sceneProject {
+		blockW := 0
+		for _, line := range page {
+			w := len([]rune(stripANSI(line)))
+			if w > blockW {
+				blockW = w
+			}
+		}
+		m.clearBlock(lines, colorMap, boldMap, pageTop, len(page), blockW)
+	}
 
 	for i, line := range page {
 		y := pageTop + i
@@ -454,6 +497,63 @@ func (m model) View() string {
 	return b.String()
 }
 
+func renderTooSmallMessage(width, height, minW, minH int) []string {
+	content := []string{
+		"WINDOW TOO SMALL",
+		"",
+		fmt.Sprintf("Please resize to at least %dx%d", minW, minH),
+		"FULLSCREEN TO VIEW",
+		"Maximize or expand your terminal window",
+		"",
+		fmt.Sprintf("Current size: %dx%d", width, height),
+		"",
+		"Press 'q' to quit",
+	}
+
+	maxW := 0
+	for _, line := range content {
+		w := len([]rune(line))
+		if w > maxW {
+			maxW = w
+		}
+	}
+
+	innerW := maxW + 2
+	borderTop := "┌" + strings.Repeat("─", innerW) + "┐"
+	borderBottom := "└" + strings.Repeat("─", innerW) + "┘"
+
+	box := make([]string, 0, len(content)+2)
+	box = append(box, borderTop)
+	for _, line := range content {
+		pad := innerW - len([]rune(line))
+		left := pad / 2
+		right := pad - left
+		box = append(box, "│"+strings.Repeat(" ", left)+line+strings.Repeat(" ", right)+"│")
+	}
+	box = append(box, borderBottom)
+
+	return box
+}
+
+func (m model) minHomeWidth() int {
+	portraitW := 0
+	for _, l := range m.portraitOriginal {
+		w := len([]rune(l))
+		if w > portraitW {
+			portraitW = w
+		}
+	}
+	introW := 0
+	for _, l := range m.introLines {
+		w := len([]rune(l))
+		if w > introW {
+			introW = w
+		}
+	}
+	gap := 4
+	return portraitW + gap + introW
+}
+
 func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
 	r := []rune(text)
 	if len(r) == 0 || y < 0 || y >= m.height {
@@ -472,6 +572,28 @@ func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color,
 		key := y*m.width + x
 		colorMap[key] = color
 		boldMap[key] = bold
+	}
+}
+
+func (m model) clearBlock(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, top, height, width int) {
+	if height <= 0 || width <= 0 {
+		return
+	}
+	x0 := (m.width - width) / 2
+	if x0 < 0 {
+		x0 = 0
+	}
+	x1 := min(m.width, x0+width)
+	for y := top; y < top+height; y++ {
+		if y < 0 || y >= m.height {
+			continue
+		}
+		for x := x0; x < x1; x++ {
+			lines[y][x] = ' '
+			key := y*m.width + x
+			delete(colorMap, key)
+			delete(boldMap, key)
+		}
 	}
 }
 
@@ -500,6 +622,53 @@ func (m model) renderScene(t theme) []string {
 	}
 }
 
+func centerLines(lines []string, width int) []string {
+	if width <= 0 {
+		return lines
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		pad := width - len([]rune(line))
+		if pad <= 0 {
+			out = append(out, line)
+			continue
+		}
+		left := pad / 2
+		out = append(out, strings.Repeat(" ", left)+line)
+	}
+	return out
+}
+
+func interleaveBlank(lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	out := make([]string, 0, len(lines)*2-1)
+	for i, line := range lines {
+		out = append(out, line)
+		if i < len(lines)-1 {
+			out = append(out, "")
+		}
+	}
+	return out
+}
+
+func padRightLines(lines []string, width int) []string {
+	if width <= 0 {
+		return lines
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		pad := width - len([]rune(line))
+		if pad > 0 {
+			out = append(out, line+strings.Repeat(" ", pad))
+		} else {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 func (m model) renderHomeScene(t theme) []string {
 	portrait := m.renderPortrait(t)
 	intro := m.introLines
@@ -526,6 +695,9 @@ func (m model) renderHomeScene(t theme) []string {
 			introW = w
 		}
 	}
+
+	about = centerLines(about, introW)
+	about = interleaveBlank(about)
 
 	gap := 4
 	totalW := portraitW + gap + introW
@@ -603,9 +775,20 @@ func (m model) renderProjectScene(t theme) []string {
 
 func (m model) renderContactScene(t theme) []string {
 	var out []string
-	out = append(out, m.contactHead...)
-	out = append(out, "", "")
-	out = append(out, m.contact...)
+	spacedContacts := interleaveBlank(m.contact)
+	all := make([]string, 0, len(m.contactHead)+len(spacedContacts)+2)
+	all = append(all, m.contactHead...)
+	all = append(all, "", "")
+	all = append(all, spacedContacts...)
+	maxW := 0
+	for _, line := range all {
+		w := len([]rune(line))
+		if w > maxW {
+			maxW = w
+		}
+	}
+	all = padRightLines(all, maxW)
+	out = append(out, all...)
 	return out
 }
 
