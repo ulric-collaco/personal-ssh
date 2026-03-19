@@ -116,13 +116,13 @@ func newModel() model {
 	}
 
 	contactArt := []string{
-		` ::::::::  ::::::::  ::::    ::: :::::::::::     :::     :::::::: :::::::::::`,
-		`:+:    :+: :+:    :+: :+:+:   :+:     :+:       :+: :+:  :+:    :+:    :+:    `,
-		`+:+        +:+    +:+ :+:+:+  +:+     +:+      +:+   +:+ +:+           +:+    `,
-		`+#+        +#+    +:+ +#+ +:+ +#+     +#+     +#++:++#++ :+#+          +#+    `,
-		`+#+        +#+    +#+ +#+  +#+#+#     +#+     +#+     +#+ +#+   +#+#    +#+   `,
-		`#+#    #+# #+#    #+# #+#   #+#+#     #+#     #+#     #+# #+#    #+#    #+#   `,
-		` ########   ::::::::  ###    ####     ###     ###     ###  ########     ###   `,
+		` ::::::::    ::::::::   ::::    :::  ::::::::::::     :::       ::::::::   :::::::::::`,
+		`:+:    :+:  :+:    :+:  :+:+:   :+:      :+:        :+: :+:    :+:    :+:      :+:    `,
+		`+:+         +:+    +:+  :+:+:+  +:+      +:+       +:+   +:+   +:+             +:+    `,
+		`+#+         +#+    +:+  +#+ +:+ +#+      +#+      +#++:++#++   :+#             +#+    `,
+		`+#+         +#+    +#+  +#+  +#+#+#      +#+      +#+     +#+  +#+    #+#      +#+   `,
+		`#+#    #+#  #+#    #+#  #+#   #+#+#      #+#      #+#     #+#  #+#    #+#      #+#   `,
+		` ########    ::::::::   ###    ####      ###      ###     ###   ########       ###   `,
 	}
 
 	projects := []projectInfo{
@@ -502,7 +502,9 @@ func renderTooSmallMessage(width, height, minW, minH int) []string {
 		"WINDOW TOO SMALL",
 		"",
 		fmt.Sprintf("Please resize to at least %dx%d", minW, minH),
+		"",
 		"FULLSCREEN TO VIEW",
+		"",
 		"Maximize or expand your terminal window",
 		"",
 		fmt.Sprintf("Current size: %dx%d", width, height),
@@ -669,6 +671,38 @@ func padRightLines(lines []string, width int) []string {
 	return out
 }
 
+func alignContactLines(lines []string) []string {
+	maxLabel := 0
+	for _, line := range lines {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		label := strings.TrimSpace(parts[0])
+		w := len([]rune(label))
+		if w > maxLabel {
+			maxLabel = w
+		}
+	}
+
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) < 2 {
+			out = append(out, line)
+			continue
+		}
+		label := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		pad := maxLabel - len([]rune(label))
+		if pad < 0 {
+			pad = 0
+		}
+		out = append(out, label+":"+strings.Repeat(" ", pad+2)+value)
+	}
+	return out
+}
+
 func (m model) renderHomeScene(t theme) []string {
 	portrait := m.renderPortrait(t)
 	intro := m.introLines
@@ -775,7 +809,8 @@ func (m model) renderProjectScene(t theme) []string {
 
 func (m model) renderContactScene(t theme) []string {
 	var out []string
-	spacedContacts := interleaveBlank(m.contact)
+	alignedContacts := alignContactLines(m.contact)
+	spacedContacts := interleaveBlank(alignedContacts)
 	all := make([]string, 0, len(m.contactHead)+len(spacedContacts)+2)
 	all = append(all, m.contactHead...)
 	all = append(all, "", "")
