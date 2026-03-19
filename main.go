@@ -385,8 +385,8 @@ func (m model) View() string {
 
 	t := m.activeTheme()
 	var b strings.Builder
-	minW := m.minHomeWidth()
-	minH := 24
+	minW := m.minHomeWidth() + 18
+	minH := 32
 	if m.width < minW || m.height < minH {
 		lines := make([][]rune, m.height)
 		colorMap := make(map[int]lipgloss.Color)
