@@ -400,8 +400,8 @@ func (m model) View() string {
 
 	t := m.activeTheme()
 	var b strings.Builder
-	minW := m.minHomeWidth() + 18
-	minH := 32
+	minW := m.minHomeWidth()
+	minH := m.minHomeHeight()
 	if m.width < minW || m.height < minH {
 		lines := make([][]rune, m.height)
 		colorMap := make(map[int]lipgloss.Color)
@@ -569,6 +569,15 @@ func (m model) minHomeWidth() int {
 	}
 	gap := 4
 	return portraitW + gap + introW
+}
+
+func (m model) minHomeHeight() int {
+	portraitH := len(m.portraitOriginal)
+	introH := len(m.introLines)
+	aboutH := len(m.aboutLines)
+	contentH := introH + 1 + aboutH
+	pageH := max(portraitH, contentH)
+	return pageH + 2
 }
 
 func (m model) blitCenteredLine(lines [][]rune, colorMap map[int]lipgloss.Color, boldMap map[int]bool, text string, y int, color lipgloss.Color, bold bool) {
