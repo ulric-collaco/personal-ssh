@@ -68,6 +68,7 @@ type model struct {
 	shimmerX      int
 	shimmerWait   int
 	shimmerPhase  int
+	allowSmall    bool
 
 	introLines []string
 	aboutLines []string
@@ -248,6 +249,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshLayout()
 		m.reseedStars()
 		m.cachedSceneLines = nil
+		if !m.isTooSmall() {
+			m.allowSmall = false
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -255,6 +259,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch s {
 		case "ctrl+c", "ctrl+x", "q":
 			return m, tea.Quit
+		case "o":
+			if m.isTooSmall() {
+				m.allowSmall = true
+			}
+			return m, nil
 		case "t":
 			m.themeIndex = (m.themeIndex + 1) % len(m.themes)
 			return m, nil
@@ -408,7 +417,7 @@ func (m model) View() string {
 	var b strings.Builder
 	minW := m.minHomeWidth()
 	minH := m.minHomeHeight()
-	if m.width < minW || m.height < minH {
+	if !m.allowSmall && (m.width < minW || m.height < minH) {
 		lines := make([][]rune, m.height)
 		colorMap := make(map[int]lipgloss.Color)
 		boldMap := make(map[int]bool)
@@ -524,15 +533,12 @@ func (m model) View() string {
 func renderTooSmallMessage(width, height, minW, minH int) []string {
 	content := []string{
 		"WINDOW TOO SMALL",
+		"FULLSCREEN FOR BEST EXPERIENCE",
 		"",
-		fmt.Sprintf("Please resize to at least %dx%d", minW, minH),
-		"",
-		"FULLSCREEN TO VIEW",
-		"",
-		"Maximize or expand your terminal window",
-		"",
+		fmt.Sprintf("Please resize your window to at least %dx%d", minW, minH),
 		fmt.Sprintf("Current size: %dx%d", width, height),
 		"",
+		"Press 'O' TO OVERRIDE",
 		"Press 'q' to quit",
 	}
 
@@ -587,6 +593,12 @@ func (m model) minHomeWidth() int {
 	}
 	gap := 4
 	return portraitW + gap + introW
+}
+
+func (m model) isTooSmall() bool {
+	minW := m.minHomeWidth()
+	minH := m.minHomeHeight()
+	return m.width < minW || m.height < minH
 }
 
 func (m model) minHomeHeight() int {
