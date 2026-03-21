@@ -538,7 +538,7 @@ func renderTooSmallMessage(width, height, minW, minH int) []string {
 		fmt.Sprintf("Please resize your window to at least %dx%d", minW, minH),
 		fmt.Sprintf("Current size: %dx%d", width, height),
 		"",
-		"Press 'O' TO OVERRIDE",
+		"PRESS 'O' TO OVERRIDE",
 		"Press 'q' to quit",
 	}
 
