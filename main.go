@@ -75,6 +75,9 @@ type model struct {
 	projects    []projectInfo
 	contact     []string
 	contactHead []string
+
+	cachedScene      sceneMode
+	cachedSceneLines []string
 }
 
 func main() {
@@ -244,12 +247,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.refreshLayout()
 		m.reseedStars()
+		m.cachedSceneLines = nil
 		return m, nil
 
 	case tea.KeyMsg:
 		s := msg.String()
 		switch s {
-		case "ctrl+c", "q":
+		case "ctrl+c", "ctrl+x", "q":
 			return m, tea.Quit
 		case "t":
 			m.themeIndex = (m.themeIndex + 1) % len(m.themes)
@@ -263,6 +267,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case sceneContact:
 				m.scene = sceneProject
 			}
+			m.refreshSceneCache()
 			return m, nil
 		case "right", "l":
 			switch m.scene {
@@ -273,6 +278,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case sceneContact:
 				m.scene = sceneHome
 			}
+			m.refreshSceneCache()
 			return m, nil
 		}
 		return m, nil
@@ -454,6 +460,9 @@ func (m model) View() string {
 
 	// Render content
 	page := m.renderScene(t)
+	if m.scene != sceneHome && m.cachedScene == m.scene && m.cachedSceneLines != nil {
+		page = m.cachedSceneLines
+	}
 	pageTop := max(0, (m.height-len(page))/2)
 	if m.scene == sceneProject {
 		blockW := 0
@@ -550,6 +559,15 @@ func renderTooSmallMessage(width, height, minW, minH int) []string {
 	box = append(box, borderBottom)
 
 	return box
+}
+
+func (m *model) refreshSceneCache() {
+	if m.scene == sceneHome {
+		m.cachedSceneLines = nil
+		return
+	}
+	m.cachedScene = m.scene
+	m.cachedSceneLines = m.renderScene(m.activeTheme())
 }
 
 func (m model) minHomeWidth() int {
