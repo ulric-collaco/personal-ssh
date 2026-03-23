@@ -762,7 +762,7 @@ func (m model) renderHomeScene(t theme) []string {
 	if !m.allowSmall {
 		portrait = m.renderPortrait(t)
 	}
-	
+
 	intro := m.introLines
 	about := m.aboutLines
 
