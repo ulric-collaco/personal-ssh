@@ -262,6 +262,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o":
 			if m.isTooSmall() {
 				m.allowSmall = true
+				m.cachedSceneLines = nil
 			}
 			return m, nil
 		case "t":
@@ -417,15 +418,17 @@ func (m model) View() string {
 	var b strings.Builder
 	minW := m.minHomeWidth()
 	minH := m.minHomeHeight()
+
+	// Use unified rendering loops to optimize output and fix flickering
+	lines := make([][]rune, m.height)
+	colorMap := make(map[int]lipgloss.Color)
+	boldMap := make(map[int]bool)
+
+	for y := 0; y < m.height; y++ {
+		lines[y] = []rune(strings.Repeat(" ", m.width))
+	}
+
 	if !m.allowSmall && (m.width < minW || m.height < minH) {
-		lines := make([][]rune, m.height)
-		colorMap := make(map[int]lipgloss.Color)
-		boldMap := make(map[int]bool)
-
-		for y := 0; y < m.height; y++ {
-			lines[y] = []rune(strings.Repeat(" ", m.width))
-		}
-
 		box := renderTooSmallMessage(m.width, m.height, minW, minH)
 		boxTop := max(0, (m.height-len(box))/2)
 		for i, line := range box {
@@ -435,93 +438,90 @@ func (m model) View() string {
 			}
 			m.blitCenteredLine(lines, colorMap, boldMap, line, y, t.highlight, true)
 		}
+	} else {
+		// Paint stars first
+		m.paintStars(lines, colorMap, boldMap, t)
 
-		for y := 0; y < m.height; y++ {
-			for x := 0; x < m.width; x++ {
-				key := y*m.width + x
-				ch := string(lines[y][x])
-				if c, ok := colorMap[key]; ok {
-					style := lipgloss.NewStyle().Foreground(c).Bold(boldMap[key])
-					b.WriteString(style.Render(ch))
-				} else {
-					b.WriteString(ch)
+		// Render content
+		page := m.renderScene(t)
+		if m.scene != sceneHome && m.cachedScene == m.scene && m.cachedSceneLines != nil {
+			page = m.cachedSceneLines
+		}
+		pageTop := max(0, (m.height-len(page))/2)
+		if m.scene == sceneProject {
+			blockW := 0
+			for _, line := range page {
+				w := len([]rune(stripANSI(line)))
+				if w > blockW {
+					blockW = w
 				}
 			}
-			if y < m.height-1 {
-				b.WriteRune('\n')
+			m.clearBlock(lines, colorMap, boldMap, pageTop, len(page), blockW)
+		}
+
+		for i, line := range page {
+			y := pageTop + i
+			if y < 0 || y >= m.height {
+				continue
 			}
-		}
 
-		return b.String()
-	}
+			plain := stripANSI(line)
+			lineColor := t.primary
+			isBold := false
 
-	// Create canvas
-	lines := make([][]rune, m.height)
-	colorMap := make(map[int]lipgloss.Color)
-	boldMap := make(map[int]bool)
-
-	for y := 0; y < m.height; y++ {
-		lines[y] = []rune(strings.Repeat(" ", m.width))
-	}
-
-	// Paint stars first
-	m.paintStars(lines, colorMap, boldMap, t)
-
-	// Render content
-	page := m.renderScene(t)
-	if m.scene != sceneHome && m.cachedScene == m.scene && m.cachedSceneLines != nil {
-		page = m.cachedSceneLines
-	}
-	pageTop := max(0, (m.height-len(page))/2)
-	if m.scene == sceneProject {
-		blockW := 0
-		for _, line := range page {
-			w := len([]rune(stripANSI(line)))
-			if w > blockW {
-				blockW = w
+			// Highlight links
+			if strings.Contains(plain, "http") || strings.Contains(plain, "@") {
+				lineColor = t.highlight
+				isBold = true
 			}
-		}
-		m.clearBlock(lines, colorMap, boldMap, pageTop, len(page), blockW)
-	}
 
-	for i, line := range page {
-		y := pageTop + i
-		if y < 0 || y >= m.height {
-			continue
+			m.blitCenteredLine(lines, colorMap, boldMap, plain, y, lineColor, isBold)
 		}
 
-		plain := stripANSI(line)
-		lineColor := t.primary
-		isBold := false
-
-		// Highlight links
-		if strings.Contains(plain, "http") || strings.Contains(plain, "@") {
-			lineColor = t.highlight
-			isBold = true
+		// Nav
+		nav := m.renderNav(t)
+		navY := m.height - 2
+		if navY >= 0 {
+			m.blitCenteredLine(lines, colorMap, boldMap, stripANSI(nav), navY, t.highlight, true)
 		}
-
-		m.blitCenteredLine(lines, colorMap, boldMap, plain, y, lineColor, isBold)
 	}
 
-	// Nav
-	nav := m.renderNav(t)
-	navY := m.height - 2
-	if navY >= 0 {
-		m.blitCenteredLine(lines, colorMap, boldMap, stripANSI(nav), navY, t.highlight, true)
-	}
-
-	// Build final output
+	// Build final output (Optimized RLE to fix flickering)
 	for y := 0; y < m.height; y++ {
+		var currentStr strings.Builder
+		var lastColor lipgloss.Color
+		var lastBold bool
+		var hasStyle bool
+
+		flush := func() {
+			if currentStr.Len() == 0 {
+				return
+			}
+			if hasStyle {
+				style := lipgloss.NewStyle().Foreground(lastColor).Bold(lastBold)
+				b.WriteString(style.Render(currentStr.String()))
+			} else {
+				b.WriteString(currentStr.String())
+			}
+			currentStr.Reset()
+		}
+
 		for x := 0; x < m.width; x++ {
 			key := y*m.width + x
 			ch := string(lines[y][x])
-			if c, ok := colorMap[key]; ok {
-				style := lipgloss.NewStyle().Foreground(c).Bold(boldMap[key])
-				b.WriteString(style.Render(ch))
-			} else {
-				b.WriteString(ch)
+			c, hasC := colorMap[key]
+			bld := boldMap[key]
+
+			if (hasStyle != hasC) || (hasStyle && (c != lastColor || bld != lastBold)) {
+				flush()
+				hasStyle = hasC
+				lastColor = c
+				lastBold = bld
 			}
+			currentStr.WriteString(ch)
 		}
+		flush()
+
 		if y < m.height-1 {
 			b.WriteRune('\n')
 		}
@@ -758,7 +758,11 @@ func alignContactLines(lines []string) []string {
 }
 
 func (m model) renderHomeScene(t theme) []string {
-	portrait := m.renderPortrait(t)
+	var portrait []string
+	if !m.allowSmall {
+		portrait = m.renderPortrait(t)
+	}
+	
 	intro := m.introLines
 	about := m.aboutLines
 
@@ -787,14 +791,19 @@ func (m model) renderHomeScene(t theme) []string {
 	about = centerLines(about, introW)
 	about = interleaveBlank(about)
 
-	gap := 4
+	gap := 0
+	if len(portrait) > 0 {
+		gap = 4
+	}
 	totalW := portraitW + gap + introW
 
 	// If too wide, stack vertically
 	if totalW > m.width-4 {
 		var out []string
-		out = append(out, portrait...)
-		out = append(out, "")
+		if len(portrait) > 0 {
+			out = append(out, portrait...)
+			out = append(out, "")
+		}
 		out = append(out, intro...)
 		out = append(out, "")
 		out = append(out, about...)
